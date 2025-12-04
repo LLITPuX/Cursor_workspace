@@ -52,3 +52,16 @@ logs/
 *.key
 secrets/
 
+# ===========================================
+# PROJECTS - All project folders are ignored
+# ===========================================
+# This repo contains only rules and templates.
+# Each project should be its own Git repository.
+
+# Ignore all directories in root except system ones
+/*
+!.cursor/
+!docs/
+!.gitignore
+!README.md
+!LICENSE
