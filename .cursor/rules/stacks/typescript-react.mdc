@@ -1,0 +1,273 @@
+---
+description: Стандарти React + TypeScript розробки. Активується при роботі з .tsx файлами.
+globs: ["**/*.tsx", "**/components/**/*.ts"]
+alwaysApply: false
+---
+
+# ⚛️ React + TypeScript — Стандарти розробки
+
+## 📦 Структура компонента
+
+```tsx
+// 1. Imports
+import { useState, useCallback, memo } from "react";
+import type { ReactNode } from "react";
+
+// 2. Types
+interface ButtonProps {
+  children: ReactNode;
+  variant?: "primary" | "secondary" | "danger";
+  size?: "sm" | "md" | "lg";
+  disabled?: boolean;
+  loading?: boolean;
+  onClick?: () => void;
+}
+
+// 3. Component
+export const Button = memo(function Button({
+  children,
+  variant = "primary",
+  size = "md",
+  disabled = false,
+  loading = false,
+  onClick,
+}: ButtonProps) {
+  const handleClick = useCallback(() => {
+    if (!disabled && !loading && onClick) {
+      onClick();
+    }
+  }, [disabled, loading, onClick]);
+
+  return (
+    <button
+      className={`btn btn-${variant} btn-${size}`}
+      disabled={disabled || loading}
+      onClick={handleClick}
+    >
+      {loading ? <Spinner /> : children}
+    </button>
+  );
+});
+```
+
+## 🎯 Props типізація
+
+```tsx
+// ✅ Interface для props
+interface UserCardProps {
+  user: User;
+  onEdit: (id: number) => void;
+  onDelete: (id: number) => Promise<void>;
+}
+
+// ✅ Children types
+interface LayoutProps {
+  children: ReactNode;  // Any valid React child
+}
+
+interface TitleProps {
+  children: string;     // Only string
+}
+
+// ✅ HTML element props extension
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label: string;
+  error?: string;
+}
+
+// ✅ Polymorphic components
+interface BoxProps<T extends React.ElementType> {
+  as?: T;
+  children: ReactNode;
+}
+
+type BoxPropsWithRef<T extends React.ElementType> = BoxProps<T> &
+  Omit<React.ComponentPropsWithoutRef<T>, keyof BoxProps<T>>;
+```
+
+## 🪝 Custom Hooks
+
+```tsx
+// ✅ Naming: use* prefix
+function useUser(userId: number) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchUser() {
+      try {
+        setLoading(true);
+        const data = await api.getUser(userId);
+        if (!cancelled) {
+          setUser(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err : new Error("Unknown error"));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchUser();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  return { user, loading, error };
+}
+
+// ✅ Return type annotation for complex hooks
+interface UseFormReturn<T> {
+  values: T;
+  errors: Partial<Record<keyof T, string>>;
+  handleChange: (field: keyof T, value: unknown) => void;
+  handleSubmit: (e: React.FormEvent) => void;
+  reset: () => void;
+}
+
+function useForm<T extends Record<string, unknown>>(
+  initialValues: T
+): UseFormReturn<T> {
+  // ...
+}
+```
+
+## 📋 Event Handlers
+
+```tsx
+// ✅ Правильна типізація
+function Form() {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log(e.target.value);
+  };
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    // ...
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // ...
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      // ...
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input onChange={handleInputChange} onKeyDown={handleKeyDown} />
+      <button onClick={handleClick}>Submit</button>
+    </form>
+  );
+}
+```
+
+## 🔄 State Management
+
+```tsx
+// ✅ useState з типом
+const [count, setCount] = useState<number>(0);
+const [user, setUser] = useState<User | null>(null);
+const [items, setItems] = useState<Item[]>([]);
+
+// ✅ useReducer для складного state
+interface State {
+  items: Item[];
+  loading: boolean;
+  error: string | null;
+}
+
+type Action =
+  | { type: "FETCH_START" }
+  | { type: "FETCH_SUCCESS"; payload: Item[] }
+  | { type: "FETCH_ERROR"; payload: string };
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case "FETCH_START":
+      return { ...state, loading: true, error: null };
+    case "FETCH_SUCCESS":
+      return { ...state, loading: false, items: action.payload };
+    case "FETCH_ERROR":
+      return { ...state, loading: false, error: action.payload };
+    default:
+      return state;
+  }
+}
+```
+
+## 📁 Структура проекту
+
+```
+src/
+├── components/
+│   ├── ui/              # Базові UI компоненти
+│   │   ├── Button/
+│   │   │   ├── Button.tsx
+│   │   │   ├── Button.test.tsx
+│   │   │   └── index.ts
+│   │   └── index.ts     # Re-exports
+│   │
+│   └── features/        # Feature-specific
+│       └── UserCard/
+│
+├── hooks/               # Custom hooks
+│   ├── useUser.ts
+│   └── index.ts
+│
+├── pages/               # Page components
+│
+├── services/            # API calls
+│
+├── types/               # Shared types
+│   ├── user.ts
+│   └── index.ts
+│
+└── utils/               # Helpers
+```
+
+## 🚫 Заборонено
+
+```tsx
+// ❌ Inline object/function в props (recreation on each render)
+<Component style={{ color: "red" }} onClick={() => doSomething()} />
+
+// ✅ Мемоізація
+const style = useMemo(() => ({ color: "red" }), []);
+const handleClick = useCallback(() => doSomething(), []);
+<Component style={style} onClick={handleClick} />
+
+// ❌ Index as key (для динамічних списків)
+items.map((item, index) => <Item key={index} />)
+
+// ✅ Унікальний ID
+items.map(item => <Item key={item.id} />)
+
+// ❌ Прямий DOM manipulation
+document.getElementById("root")!.style.display = "none";
+
+// ✅ useRef
+const ref = useRef<HTMLDivElement>(null);
+```
+
+## 🔧 Рекомендовані бібліотеки
+
+| Бібліотека | Призначення |
+|------------|-------------|
+| `@tanstack/react-query` | Server state |
+| `zustand` / `jotai` | Client state |
+| `react-hook-form` | Forms |
+| `zod` | Validation |
+| `tailwindcss` | Styling |

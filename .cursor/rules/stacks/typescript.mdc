@@ -1,0 +1,226 @@
+---
+description: Стандарти TypeScript розробки. Автоматично активується при роботі з .ts/.tsx файлами.
+globs: ["**/*.ts", "**/*.tsx"]
+alwaysApply: false
+---
+
+# 📘 TypeScript — Стандарти розробки
+
+## ⚙️ Конфігурація (tsconfig.json)
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}
+```
+
+## 📋 Іменування
+
+```typescript
+// Змінні та функції — camelCase
+const userName = "John";
+function getUserData() {}
+
+// Класи та типи — PascalCase
+class UserService {}
+interface UserData {}
+type UserId = number;
+
+// Константи — UPPER_SNAKE_CASE
+const MAX_RETRIES = 3;
+const API_BASE_URL = "https://...";
+
+// Приватні поля — з underscore або #
+class Service {
+  private _cache: Map<string, unknown>;
+  #internalState: boolean;
+}
+
+// Boolean — з is/has/can/should prefix
+const isLoading = true;
+const hasAccess = false;
+const canEdit = true;
+```
+
+## 🔒 Типізація
+
+### Базові типи
+```typescript
+// ✅ Явні типи для публічного API
+function fetchUser(id: number): Promise<User | null> {
+  // ...
+}
+
+// ✅ Інтерфейси для об'єктів
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  createdAt: Date;
+}
+
+// ✅ Type для unions та aliases
+type Status = "pending" | "active" | "deleted";
+type UserId = number;
+
+// ✅ Generics
+function getFirst<T>(items: T[]): T | undefined {
+  return items[0];
+}
+```
+
+### Складні типи
+```typescript
+// Utility types
+type PartialUser = Partial<User>;           // All optional
+type RequiredUser = Required<User>;         // All required
+type ReadonlyUser = Readonly<User>;         // Immutable
+type UserKeys = keyof User;                 // "id" | "name" | ...
+type UserName = Pick<User, "name">;         // { name: string }
+type UserWithoutId = Omit<User, "id">;      // User without id
+
+// Record для словників
+type UserMap = Record<number, User>;
+
+// Conditional types
+type ApiResponse<T> = T extends Error 
+  ? { error: string } 
+  : { data: T };
+```
+
+## ⚡ Async/Await
+
+```typescript
+// ✅ Правильно
+async function fetchData<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  
+  return response.json() as Promise<T>;
+}
+
+// ✅ Error handling
+async function safeOperation<T>(
+  operation: () => Promise<T>
+): Promise<[T, null] | [null, Error]> {
+  try {
+    const result = await operation();
+    return [result, null];
+  } catch (error) {
+    return [null, error instanceof Error ? error : new Error(String(error))];
+  }
+}
+```
+
+## 🚫 Заборонено
+
+```typescript
+// ❌ any (без крайньої потреби)
+function process(data: any) {} // ❌
+
+// ✅ Використовуй unknown
+function process(data: unknown) {
+  if (typeof data === "string") {
+    // тепер data: string
+  }
+}
+
+// ❌ Non-null assertion без перевірки
+const name = user!.name; // ❌
+
+// ✅ Перевірка
+const name = user?.name ?? "Unknown";
+
+// ❌ Type assertions без перевірки
+const user = data as User; // ❌
+
+// ✅ Type guard
+function isUser(data: unknown): data is User {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "id" in data &&
+    "name" in data
+  );
+}
+
+// ❌ Implicit any в callbacks
+items.map(item => item.name); // ❌ якщо items: unknown[]
+
+// ✅ Явна типізація
+items.map((item: User) => item.name);
+```
+
+## 📦 Організація коду
+
+```typescript
+// 1. Imports (grouped)
+// External
+import { useState, useEffect } from "react";
+import { z } from "zod";
+
+// Internal
+import { UserService } from "@/services/user";
+import { Button } from "@/components/ui";
+
+// Types
+import type { User, ApiResponse } from "@/types";
+
+// 2. Types/Interfaces
+interface Props {
+  userId: number;
+  onUpdate: (user: User) => void;
+}
+
+// 3. Constants
+const DEFAULT_PAGE_SIZE = 10;
+
+// 4. Component/Function
+export function UserProfile({ userId, onUpdate }: Props) {
+  // ...
+}
+
+// 5. Helper functions (private)
+function formatDate(date: Date): string {
+  return date.toISOString();
+}
+```
+
+## 📁 Структура проекту
+
+```
+project/
+├── src/
+│   ├── index.ts           # Entry point
+│   ├── types/             # Type definitions
+│   │   ├── index.ts
+│   │   └── user.ts
+│   ├── services/          # Business logic
+│   ├── utils/             # Helpers
+│   └── components/        # UI (for React)
+├── tests/
+├── package.json
+└── tsconfig.json
+```
+
+## 🔧 Рекомендовані інструменти
+
+| Інструмент | Призначення |
+|------------|-------------|
+| `eslint` | Лінтер |
+| `prettier` | Форматування |
+| `vitest` / `jest` | Тестування |
+| `zod` | Runtime валідація |

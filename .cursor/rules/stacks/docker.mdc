@@ -1,0 +1,314 @@
+---
+description: Стандарти Docker та Docker Compose. Активується при роботі з Dockerfile та docker-compose.
+globs: ["**/Dockerfile", "**/Dockerfile.*", "**/docker-compose*.yml", "**/docker-compose*.yaml"]
+alwaysApply: false
+---
+
+# 🐳 Docker — Стандарти розробки
+
+## 📋 Dockerfile Best Practices
+
+### Multi-stage Build (рекомендовано)
+
+```dockerfile
+# ===================
+# Stage 1: Build
+# ===================
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# ===================
+# Stage 2: Runtime
+# ===================
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser
+
+# Copy dependencies from builder
+COPY --from=builder /root/.local /home/appuser/.local
+
+# Copy application code
+COPY --chown=appuser:appuser ./src ./src
+
+# Switch to non-root user
+USER appuser
+
+# Add local bin to PATH
+ENV PATH=/home/appuser/.local/bin:$PATH
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+### Правила оптимізації
+
+```dockerfile
+# ✅ Combine RUN commands (менше layers)
+RUN apt-get update && apt-get install -y \
+    package1 \
+    package2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ❌ Окремі RUN (більше layers)
+RUN apt-get update
+RUN apt-get install -y package1
+RUN apt-get install -y package2
+
+# ✅ Copy dependencies before code (cache)
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+
+# ❌ Copy all at once (cache invalidation)
+COPY . .
+RUN pip install -r requirements.txt
+```
+
+## 📦 Docker Compose
+
+### Базовий шаблон
+
+```yaml
+version: "3.8"
+
+services:
+  # ===================
+  # Application
+  # ===================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime  # For multi-stage
+    container_name: myapp
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/mydb
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./src:/app/src:ro  # Read-only in production
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===================
+  # Database
+  # ===================
+  db:
+    image: postgres:16-alpine
+    container_name: myapp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===================
+  # Cache
+  # ===================
+  redis:
+    image: redis:7-alpine
+    container_name: myapp-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+
+# ===================
+# Networks
+# ===================
+networks:
+  backend:
+    driver: bridge
+
+# ===================
+# Volumes
+# ===================
+volumes:
+  postgres_data:
+  redis_data:
+```
+
+### Development vs Production
+
+```yaml
+# docker-compose.yml (base)
+version: "3.8"
+services:
+  app:
+    build: .
+    environment:
+      - NODE_ENV=production
+
+# docker-compose.dev.yml (development overrides)
+version: "3.8"
+services:
+  app:
+    build:
+      target: development
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - DEBUG=true
+    command: npm run dev
+```
+
+**Запуск:**
+```bash
+# Development
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# Production
+docker compose up -d
+```
+
+## 📁 .dockerignore
+
+```dockerignore
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# Dependencies (will be installed in container)
+node_modules
+venv
+.venv
+__pycache__
+
+# Build artifacts
+dist
+build
+*.egg-info
+
+# Environment (secrets!)
+.env
+.env.*
+!.env.example
+
+# Tests
+tests
+*_test.py
+*.test.ts
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Docker
+Dockerfile*
+docker-compose*
+.docker
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log
+```
+
+## 🔐 Безпека
+
+```dockerfile
+# ✅ Non-root user
+RUN useradd --create-home appuser
+USER appuser
+
+# ✅ Read-only filesystem (in compose)
+read_only: true
+tmpfs:
+  - /tmp
+
+# ✅ No new privileges
+security_opt:
+  - no-new-privileges:true
+
+# ✅ Resource limits (in compose)
+deploy:
+  resources:
+    limits:
+      cpus: "1.0"
+      memory: 512M
+    reservations:
+      cpus: "0.25"
+      memory: 128M
+```
+
+## 🔧 Корисні команди
+
+```bash
+# Build
+docker compose build --no-cache
+
+# Start
+docker compose up -d
+
+# Logs
+docker compose logs -f app
+
+# Shell access
+docker compose exec app /bin/bash
+
+# Stop & remove
+docker compose down -v  # -v removes volumes
+
+# Prune unused
+docker system prune -a --volumes
+```
+
+## 🚫 Заборонено
+
+- ❌ `latest` tag для production images
+- ❌ Secrets в Dockerfile або image
+- ❌ Root user в production
+- ❌ Відкриті порти без потреби
+- ❌ Великі base images (використовуй `-slim` або `-alpine`)
