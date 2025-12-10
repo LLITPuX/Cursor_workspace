@@ -15,7 +15,7 @@ dist/
 # Cursor system files
 .cursor/*
 !.cursor/rules/
-!.cursor/mcp.json # (якщо є, можна додати, але обережно)
+!.cursor/mcp.json
 
 # OS files
 .DS_Store
@@ -23,3 +23,8 @@ Thumbs.db
 
 # VS Code
 .vscode/
+
+# --- Private Projects (Local Development) ---
+# Ігноруємо вкладені проекти, щоб воркспейс залишався чистим шаблоном
+Io/
+projects/
