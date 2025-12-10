@@ -13,9 +13,9 @@ node_modules/
 dist/
 
 # Cursor system files
-.cursor/
-!.cursor/rules/ # Зберігаємо правила, бо вони корисні для інших
-.cursor/terminals/
+.cursor/*
+!.cursor/rules/
+!.cursor/mcp.json # (якщо є, можна додати, але обережно)
 
 # OS files
 .DS_Store
