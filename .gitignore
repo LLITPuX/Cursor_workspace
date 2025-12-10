@@ -1,67 +1,25 @@
-# Environment
+# Environment variables
 .env
 .env.local
 .env.*.local
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-.venv/
-env/
-.eggs/
-*.egg-info/
-dist/
-build/
-
-# Node
-node_modules/
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Logs
-*.log
-logs/
+# Node modules
+node_modules/
+dist/
 
-# Temporary
-*.tmp
-*.temp
-.cache/
+# Cursor system files
+.cursor/
+!.cursor/rules/ # Зберігаємо правила, бо вони корисні для інших
+.cursor/terminals/
 
-# Database
-*.sqlite
-*.db
+# OS files
+.DS_Store
+Thumbs.db
 
-# Secrets - NEVER commit these!
-*.pem
-*.key
-secrets/
-
-# ===========================================
-# PROJECTS - All project folders are ignored
-# ===========================================
-# This repo contains only rules and templates.
-# Each project should be its own Git repository.
-
-# Ignore all directories in root except system ones
-/*
-!.cursor/
-!docs/
-!.gitignore
-!README.md
-!LICENSE
+# VS Code
+.vscode/
