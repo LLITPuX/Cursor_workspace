@@ -34,3 +34,4 @@
 - **Extension:** `pgvector` (для семантичного пошуку), `timescaledb` (опціонально для часових рядів).
 - **Protocol:** MCP (Model Context Protocol).
 
+

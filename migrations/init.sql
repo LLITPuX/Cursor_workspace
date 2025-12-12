@@ -63,3 +63,4 @@ CREATE TABLE IF NOT EXISTS entity_edges (
 -- Index for finding active edges
 CREATE INDEX IF NOT EXISTS idx_edges_valid_to ON entity_edges(valid_to) WHERE valid_to IS NULL;
 
+
