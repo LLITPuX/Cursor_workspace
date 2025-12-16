@@ -13,13 +13,85 @@ Python сервіс для генерації embeddings з використан
 
 ## 📋 Вимоги
 
-- Python 3.10+
-- Ollama з встановленою моделлю `embeddinggemma`
+- Docker та Docker Compose (рекомендовано)
+- Або Python 3.10+ та Ollama локально
 - Neon PostgreSQL база даних (або інша PostgreSQL з pgvector)
 
 ## 🚀 Швидкий старт
 
-### 1. Встановлення Ollama та моделі
+### Варіант 1: Docker (Рекомендовано) 🐳
+
+#### 1. Налаштування конфігурації
+
+Створіть файл `.env` в корені `embedding-service`:
+
+```bash
+cd embedding-service
+cp .env.example .env
+```
+
+Відредагуйте `.env` та встановіть `NEON_CONNECTION_STRING`:
+
+```env
+NEON_CONNECTION_STRING=postgresql://user:password@host/database?sslmode=require
+```
+
+#### 2. Запуск через Docker Compose
+
+```bash
+# Запуск всіх сервісів (Ollama + Embedding Service)
+docker-compose up -d
+
+# Перевірка статусу
+docker-compose ps
+
+# Перегляд логів
+docker-compose logs -f embedding-service
+```
+
+#### 3. Завантаження моделі в Ollama
+
+Після запуску контейнерів, завантажте модель:
+
+```bash
+# Завантажити модель EmbeddingGemma в контейнер Ollama
+docker exec embedding-ollama ollama pull embeddinggemma:latest
+
+# Перевірити, що модель завантажена
+docker exec embedding-ollama ollama list
+
+# Або використати Makefile команду
+make init-model
+```
+
+#### 4. Перевірка роботи
+
+```bash
+# Health check
+curl http://localhost:8000/api/v1/health
+
+# Або відкрийте в браузері
+# http://localhost:8000/docs
+```
+
+#### 5. Зупинка сервісів
+
+```bash
+docker-compose down
+
+# З видаленням volumes (очистить дані Ollama)
+docker-compose down -v
+```
+
+#### Development режим з hot reload
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+### Варіант 2: Локальний запуск (без Docker)
+
+#### 1. Встановлення Ollama та моделі
 
 ```bash
 # Встановіть Ollama (якщо ще не встановлено)
@@ -29,14 +101,14 @@ Python сервіс для генерації embeddings з використан
 ollama pull embeddinggemma:latest
 ```
 
-### 2. Встановлення залежностей
+#### 2. Встановлення залежностей
 
 ```bash
 cd embedding-service
 pip install -r requirements.txt
 ```
 
-### 3. Налаштування конфігурації
+#### 3. Налаштування конфігурації
 
 Скопіюйте `.env.example` в `.env` та налаштуйте:
 
@@ -45,11 +117,11 @@ cp .env.example .env
 # Відредагуйте .env файл
 ```
 
-### 4. Запуск міграції БД
+#### 4. Запуск міграції БД
 
 Виконайте міграцію `migrations/002_update_embedding_dimension.sql` в вашій Neon базі даних.
 
-### 5. Запуск сервісу
+#### 5. Запуск сервісу
 
 ```bash
 python -m app.main
@@ -161,14 +233,77 @@ async def save_message_with_embedding(text: str, session_id: str):
     # ... ваш код збереження
 ```
 
+## 🐳 Docker команди
+
+### Використання Makefile (рекомендовано)
+
+```bash
+# Показати всі доступні команди
+make help
+
+# Збудувати образи
+make build
+
+# Запустити сервіси
+make up
+
+# Завантажити модель EmbeddingGemma
+make init-model
+
+# Переглянути логи
+make logs
+
+# Перевірити health check
+make test
+
+# Зупинити сервіси
+make down
+
+# Development режим з hot reload
+make dev
+
+# Відкрити shell в контейнері
+make shell
+```
+
+### Прямі docker-compose команди
+
+```bash
+# Збірка образу
+docker-compose build
+
+# Запуск в фоні
+docker-compose up -d
+
+# Перегляд логів
+docker-compose logs -f embedding-service
+
+# Зупинка
+docker-compose down
+
+# Перезапуск сервісу
+docker-compose restart embedding-service
+
+# Виконання команд в контейнері
+docker-compose exec embedding-service python -c "print('Hello')"
+
+# Завантаження моделі в Ollama контейнер
+docker exec embedding-ollama ollama pull embeddinggemma:latest
+```
+
 ## 🧪 Тестування
 
 ```bash
-# Запуск тестів (коли будуть додані)
-pytest
-
 # Перевірка здоров'я сервісу
 curl http://localhost:8000/api/v1/health
+
+# Тест генерації embedding
+curl -X POST http://localhost:8000/api/v1/embed \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello, world!"}'
+
+# Запуск тестів (коли будуть додані)
+pytest
 ```
 
 ## 📝 Примітки

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Application settings"""
     
     # Neon Database
-    neon_connection_string: str
+    neon_connection_string: Optional[str] = None
     
     # Ollama Configuration
     ollama_base_url: str = "http://localhost:11434"

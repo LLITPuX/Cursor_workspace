@@ -40,10 +40,14 @@ async def startup_event():
     logger.info("Starting embedding service...")
     try:
         await db.connect()
-        logger.info("Database connected")
+        if db.pool:
+            logger.info("Database connected")
+        else:
+            logger.info("Running without database connection")
     except Exception as e:
         logger.error(f"Failed to connect to database: {e}")
-        raise
+        # Don't raise - allow service to run without DB for testing
+        logger.warning("Continuing without database connection")
 
 
 @app.on_event("shutdown")

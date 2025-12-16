@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.embedding import EmbeddingService
 from app.config import settings
+from app.database import db
 from chunking.base import Chunk
 from chunking.strategies import SimpleChunking, RecursiveChunking, SemanticChunking
 import logging
@@ -246,4 +247,91 @@ async def list_chunking_strategies():
             }
         ]
     }
+
+
+class MessageInput(BaseModel):
+    """Message input for session"""
+    role: str = Field(..., description="Message role: 'user' or 'assistant'")
+    content: str = Field(..., min_length=1, description="Message content")
+
+
+class SessionRequest(BaseModel):
+    """Request model for saving session"""
+    topic: Optional[str] = Field(None, description="Session topic")
+    messages: List[MessageInput] = Field(..., min_length=1, description="List of messages")
+    generate_embeddings: bool = Field(True, description="Generate embeddings for messages")
+
+
+class SessionResponse(BaseModel):
+    """Response model for saved session"""
+    session_id: str
+    topic: Optional[str]
+    messages_saved: int
+    embeddings_generated: int
+
+
+@router.post("/sessions", response_model=SessionResponse)
+async def save_session(
+    request: SessionRequest,
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+):
+    """
+    Save a session with messages and optional embeddings
+    
+    Args:
+        request: Session request with topic and messages
+        embedding_service: Embedding service instance
+        
+    Returns:
+        Session response with session ID and statistics
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    try:
+        # Create session
+        session_id = await db.create_session(
+            topic=request.topic,
+            metadata={"source": "embedding-service-api"}
+        )
+        
+        embeddings_generated = 0
+        messages_saved = 0
+        
+        # Save messages with embeddings
+        for msg in request.messages:
+            embedding = None
+            
+            if request.generate_embeddings:
+                try:
+                    embedding = await embedding_service.generate_embedding(msg.content)
+                    embeddings_generated += 1
+                except Exception as e:
+                    logger.warning(f"Failed to generate embedding for message: {e}")
+                    # Continue without embedding
+            
+            await db.save_message(
+                session_id=session_id,
+                role=msg.role,
+                content=msg.content,
+                embedding=embedding
+            )
+            messages_saved += 1
+        
+        return SessionResponse(
+            session_id=session_id,
+            topic=request.topic,
+            messages_saved=messages_saved,
+            embeddings_generated=embeddings_generated
+        )
+        
+    except Exception as e:
+        logger.error(f"Error saving session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save session: {str(e)}"
+        )
 
