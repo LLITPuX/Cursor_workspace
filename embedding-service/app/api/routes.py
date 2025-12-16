@@ -1,5 +1,5 @@
 """API routes for embedding service"""
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.embedding import EmbeddingService
@@ -270,6 +270,25 @@ class SessionResponse(BaseModel):
     embeddings_generated: int
 
 
+class EmbeddingGenerationResponse(BaseModel):
+    """Response model for embedding generation"""
+    session_id: Optional[str] = None
+    messages_processed: int
+    embeddings_generated: int
+    errors: int
+    success_rate: float
+
+
+class EmbeddingStatsResponse(BaseModel):
+    """Response model for embedding statistics"""
+    total_sessions: int
+    sessions_with_embeddings: int
+    sessions_without_embeddings: int
+    total_messages: int
+    messages_with_embeddings: int
+    messages_without_embeddings: int
+
+
 @router.post("/sessions", response_model=SessionResponse)
 async def save_session(
     request: SessionRequest,
@@ -333,5 +352,210 @@ async def save_session(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save session: {str(e)}"
+        )
+
+
+@router.post("/sessions/{session_id}/generate-embeddings", response_model=EmbeddingGenerationResponse)
+async def generate_embeddings_for_session(
+    session_id: str,
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+):
+    """
+    Generate embeddings for all messages in a specific session that don't have embeddings
+    
+    Args:
+        session_id: Session ID to process
+        embedding_service: Embedding service instance
+        
+    Returns:
+        Embedding generation response with statistics
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    # Check if session exists
+    if not await db.session_exists(session_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} not found"
+        )
+    
+    try:
+        # Get messages without embeddings for this session
+        messages = await db.get_messages_without_embeddings(session_id=session_id)
+        
+        if not messages:
+            return EmbeddingGenerationResponse(
+                session_id=session_id,
+                messages_processed=0,
+                embeddings_generated=0,
+                errors=0,
+                success_rate=100.0
+            )
+        
+        # Process messages
+        embeddings_generated = 0
+        errors = 0
+        
+        for msg in messages:
+            try:
+                embedding = await embedding_service.generate_embedding(msg['content'])
+                updated = await db.update_message_embedding(msg['id'], embedding)
+                
+                if updated:
+                    embeddings_generated += 1
+                else:
+                    errors += 1
+                    logger.warning(f"Failed to update embedding for message {msg['id']}")
+                    
+            except Exception as e:
+                errors += 1
+                logger.error(f"Error generating embedding for message {msg['id']}: {e}")
+        
+        success_rate = (embeddings_generated / len(messages) * 100) if messages else 0.0
+        
+        return EmbeddingGenerationResponse(
+            session_id=session_id,
+            messages_processed=len(messages),
+            embeddings_generated=embeddings_generated,
+            errors=errors,
+            success_rate=round(success_rate, 2)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating embeddings for session {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate embeddings: {str(e)}"
+        )
+
+
+@router.post("/sessions/generate-embeddings/all", response_model=EmbeddingGenerationResponse)
+async def generate_embeddings_for_all_sessions(
+    limit: Optional[int] = Query(None, description="Limit number of messages to process"),
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+):
+    """
+    Generate embeddings for all messages without embeddings across all sessions
+    
+    Args:
+        limit: Optional limit on number of messages to process
+        embedding_service: Embedding service instance
+        
+    Returns:
+        Embedding generation response with statistics
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    try:
+        # Get all messages without embeddings
+        messages = await db.get_messages_without_embeddings(limit=limit)
+        
+        if not messages:
+            return EmbeddingGenerationResponse(
+                messages_processed=0,
+                embeddings_generated=0,
+                errors=0,
+                success_rate=100.0
+            )
+        
+        # Process messages
+        embeddings_generated = 0
+        errors = 0
+        
+        for msg in messages:
+            try:
+                embedding = await embedding_service.generate_embedding(msg['content'])
+                updated = await db.update_message_embedding(msg['id'], embedding)
+                
+                if updated:
+                    embeddings_generated += 1
+                else:
+                    errors += 1
+                    logger.warning(f"Failed to update embedding for message {msg['id']}")
+                    
+            except Exception as e:
+                errors += 1
+                logger.error(f"Error generating embedding for message {msg['id']}: {e}")
+        
+        success_rate = (embeddings_generated / len(messages) * 100) if messages else 0.0
+        
+        return EmbeddingGenerationResponse(
+            messages_processed=len(messages),
+            embeddings_generated=embeddings_generated,
+            errors=errors,
+            success_rate=round(success_rate, 2)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error generating embeddings for all sessions: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate embeddings: {str(e)}"
+        )
+
+
+@router.get("/sessions/stats", response_model=EmbeddingStatsResponse)
+async def get_embedding_stats():
+    """
+    Get statistics about sessions and embeddings
+    
+    Returns:
+        Statistics about sessions and messages with/without embeddings
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    try:
+        # Get total sessions
+        total_sessions_row = await db.fetchrow("SELECT COUNT(*) as count FROM sessions")
+        total_sessions = total_sessions_row['count'] if total_sessions_row else 0
+        
+        # Get sessions with embeddings
+        sessions_with_embeddings_row = await db.fetchrow("""
+            SELECT COUNT(DISTINCT session_id) as count
+            FROM messages
+            WHERE embedding_v2 IS NOT NULL
+        """)
+        sessions_with_embeddings = sessions_with_embeddings_row['count'] if sessions_with_embeddings_row else 0
+        
+        # Get total messages
+        total_messages_row = await db.fetchrow("SELECT COUNT(*) as count FROM messages")
+        total_messages = total_messages_row['count'] if total_messages_row else 0
+        
+        # Get messages with embeddings
+        messages_with_embeddings_row = await db.fetchrow("""
+            SELECT COUNT(*) as count
+            FROM messages
+            WHERE embedding_v2 IS NOT NULL
+        """)
+        messages_with_embeddings = messages_with_embeddings_row['count'] if messages_with_embeddings_row else 0
+        
+        return EmbeddingStatsResponse(
+            total_sessions=total_sessions,
+            sessions_with_embeddings=sessions_with_embeddings,
+            sessions_without_embeddings=total_sessions - sessions_with_embeddings,
+            total_messages=total_messages,
+            messages_with_embeddings=messages_with_embeddings,
+            messages_without_embeddings=total_messages - messages_with_embeddings
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting embedding stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get statistics: {str(e)}"
         )
 

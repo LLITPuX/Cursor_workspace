@@ -107,6 +107,82 @@ class Database:
                 embedding_str
             )
             return str(row['id'])
+    
+    async def update_message_embedding(
+        self,
+        message_id: str,
+        embedding: List[float]
+    ) -> bool:
+        """Update embedding for an existing message"""
+        if not self.pool:
+            raise RuntimeError("Database pool not initialized")
+        
+        async with self.pool.acquire() as conn:
+            # Convert embedding list to pgvector format string
+            embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
+            
+            result = await conn.execute(
+                """
+                UPDATE messages
+                SET embedding_v2 = $1::vector
+                WHERE id = $2
+                """,
+                embedding_str,
+                message_id
+            )
+            return result == "UPDATE 1"
+    
+    async def get_messages_without_embeddings(
+        self,
+        limit: Optional[int] = None,
+        session_id: Optional[str] = None
+    ) -> List[dict]:
+        """Get all messages without embeddings_v2, optionally filtered by session_id"""
+        if not self.pool:
+            raise RuntimeError("Database pool not initialized")
+        
+        async with self.pool.acquire() as conn:
+            query = """
+                SELECT id, session_id, role, content
+                FROM messages
+                WHERE embedding_v2 IS NULL
+            """
+            params = []
+            param_num = 1
+            
+            if session_id:
+                query += f" AND session_id = ${param_num}"
+                params.append(session_id)
+                param_num += 1
+            
+            query += " ORDER BY created_at"
+            
+            if limit:
+                query += f" LIMIT ${param_num}"
+                params.append(limit)
+            
+            rows = await conn.fetch(query, *params) if params else await conn.fetch(query)
+            return [
+                {
+                    'id': str(row['id']),
+                    'session_id': str(row['session_id']) if row['session_id'] else None,
+                    'role': row['role'],
+                    'content': row['content']
+                }
+                for row in rows
+            ]
+    
+    async def session_exists(self, session_id: str) -> bool:
+        """Check if session exists"""
+        if not self.pool:
+            raise RuntimeError("Database pool not initialized")
+        
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT 1 FROM sessions WHERE id = $1",
+                session_id
+            )
+            return row is not None
 
 
 # Global database instance

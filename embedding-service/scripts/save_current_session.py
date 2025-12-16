@@ -42,56 +42,49 @@ async def save_current_session():
     messages = [
         {
             "role": "user",
-            "content": "Собери контейнер и протестируй эмбендинг-сервис"
+            "content": "Проанализируй последние сессии сделай комиты дла новых файло в и пуш. И сразусохрани эту сессию в базе"
         },
         {
             "role": "assistant",
-            "content": """Контейнер зібрано та запущено. Ollama працює (модель embeddinggemma:latest завантажена). Embedding-сервіс працює.
+            "content": """Проаналізував останні сесії та виконав наступне:
 
-Протестовані endpoints:
-- Health Check (/api/v1/health) - працює
-- Генерація embedding (/api/v1/embed) - працює, розмірність 768
-- Список стратегій (/api/v1/strategies) - працює
-- Chunked Embedding (/api/v1/embed-chunked) - працює
+1. **Аналіз git статусу:**
+   - Виявлено нові файли: .dockerignore, Dockerfile, Makefile, SAVE_SESSION.md, docker-compose файли, scripts/
+   - Виявлено змінені файли: README.md, app/api/routes.py, app/config.py, app/database.py, app/embedding.py, app/main.py
 
-Виправлено batch-обробку embeddings (послідовні виклики замість batch API)."""
-        },
-        {
-            "role": "user",
-            "content": "Сохрани сессию в базу"
-        },
-        {
-            "role": "assistant",
-            "content": """Додано функціональність збереження сесій у базу даних:
+2. **Виконано коміт:**
+   - Додано всі нові файли та зміни
+   - Створено коміт з описом: "feat: add Docker support, scripts, and improve embedding service"
+   - Коміт включає: Docker конфігурації, Makefile, скрипти для збереження сесій, документацію
 
-1. Методи в database.py:
-   - create_session() - створює нову сесію
-   - save_message() - зберігає повідомлення з embedding
+3. **Виконано push:**
+   - Зміни успішно відправлено в репозиторій
+   - Коміт ID: 4ca3046
 
-2. API endpoint:
-   - POST /api/v1/sessions - зберігає сесію з повідомленнями та embeddings
-
-3. Скрипт для тестування:
-   - scripts/save_test_session.py - зберігає тестову сесію
-
-4. Документація:
-   - SAVE_SESSION.md - інструкція з використання
-
-Особливості:
-- Автоматична генерація embeddings для всіх повідомлень
-- Збереження навіть якщо генерація embedding не вдалася
-- Використання embedding_v2 (768d) для EmbeddingGemma"""
+4. **Збереження сесії:**
+   - Створюю сесію в базі даних з поточними повідомленнями
+   - Генерую embeddings для всіх повідомлень"""
         }
     ]
     
     try:
         # Create session
         session_id = await db.create_session(
-            topic="Збірка та тестування embedding-сервісу",
+            topic="Аналіз сесій, коміти та збереження в базі",
             metadata={
                 "test": False,
                 "source": "current_session_script",
-                "description": "Сесія збірки та тестування embedding-сервісу"
+                "description": "Сесія аналізу останніх змін, створення комітів та збереження в базі даних",
+                "commit_id": "4ca3046",
+                "files_added": [
+                    ".dockerignore", "Dockerfile", "Makefile", "SAVE_SESSION.md",
+                    "docker-compose.dev.yml", "docker-compose.yml",
+                    "scripts/init-ollama.sh", "scripts/save_current_session.py", "scripts/save_test_session.py"
+                ],
+                "files_modified": [
+                    "README.md", "app/api/routes.py", "app/config.py",
+                    "app/database.py", "app/embedding.py", "app/main.py"
+                ]
             }
         )
         print(f"✓ Created session: {session_id}")
