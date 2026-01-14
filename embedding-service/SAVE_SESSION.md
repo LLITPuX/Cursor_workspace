@@ -202,8 +202,39 @@ WHERE session_id = 'ваш-session-id';
 ## Структура бази даних
 
 - **sessions** - метадані сесій (id, topic, created_at, metadata)
-- **messages** - повідомлення з embeddings (id, session_id, role, content, embedding_v2)
+- **messages** - повідомлення з embeddings (id, session_id, role, content, embedding_v2, embedding_model_id)
 - **embedding_v2** - вектор розмірністю 768 (для EmbeddingGemma)
+- **message_entity_links** - зв'язки між повідомленнями та правилами/інструкціями
+- **session_entity_links** - зв'язки між сесіями та протоколами
+
+## Створення зв'язків з правилами та інструкціями
+
+Після збереження сесії можна створити зв'язки між повідомленнями та використаними правилами/інструкціями:
+
+### Через API
+
+```bash
+# Зв'язати повідомлення з правилом
+POST /api/v1/messages/{message_id}/link-entity?entity_id={rule_id}&relation_type=uses
+
+# Зв'язати повідомлення з інструкцією
+POST /api/v1/messages/{message_id}/link-entity?entity_id={instruction_id}&relation_type=applies
+
+# Зв'язати сесію з протоколом
+POST /api/v1/sessions/{session_id}/link-entity?entity_id={protocol_id}&relation_type=executed_in
+```
+
+### Через SQL
+
+```sql
+-- Створити зв'язок між повідомленням та правилом
+INSERT INTO message_entity_links (message_id, entity_id, relation_type)
+VALUES ('message-uuid', 'rule-uuid', 'uses');
+
+-- Створити зв'язок між сесією та протоколом
+INSERT INTO session_entity_links (session_id, entity_id, relation_type)
+VALUES ('session-uuid', 'protocol-uuid', 'executed_in');
+```
 
 ## Примітки
 
@@ -211,5 +242,6 @@ WHERE session_id = 'ваш-session-id';
 - Якщо генерація embedding не вдалася, повідомлення все одно зберігається (без embedding)
 - Розмірність embedding: **768** (модель EmbeddingGemma)
 - Стара колонка `embedding` (1536d) залишається для сумісності з OpenAI моделями
+- Зв'язки між повідомленнями та правилами/інструкціями дозволяють відстежувати використання та використовувати RAG для пошуку релевантних інструкцій
 
 

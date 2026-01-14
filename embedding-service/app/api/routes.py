@@ -289,6 +289,45 @@ class EmbeddingStatsResponse(BaseModel):
     messages_without_embeddings: int
 
 
+class VectorSearchRequest(BaseModel):
+    """Request model for vector search"""
+    query_text: str = Field(..., min_length=1, description="Text to search for")
+    limit: int = Field(10, ge=1, le=100, description="Maximum number of results")
+    similarity_threshold: float = Field(0.0, ge=0.0, le=1.0, description="Minimum similarity score")
+    session_id: Optional[str] = Field(None, description="Filter by session ID")
+    role: Optional[str] = Field(None, description="Filter by role ('user' or 'assistant')")
+
+
+class VectorSearchResponse(BaseModel):
+    """Response model for vector search"""
+    results: List[Dict[str, Any]]
+    query_text: str
+    limit: int
+    total_results: int
+
+
+class EntityNodeSearchRequest(BaseModel):
+    """Request model for entity node search"""
+    query_text: str = Field(..., min_length=1, description="Text to search for")
+    types: Optional[List[str]] = Field(None, description="Filter by entity types")
+    limit: int = Field(10, ge=1, le=100, description="Maximum number of results")
+    similarity_threshold: float = Field(0.0, ge=0.0, le=1.0, description="Minimum similarity score")
+    active_only: bool = Field(True, description="Only return active nodes")
+
+
+class CriticalRulesResponse(BaseModel):
+    """Response model for critical rules"""
+    rules: List[Dict[str, Any]]
+    total_count: int
+
+
+class EntityChildrenRequest(BaseModel):
+    """Request model for getting entity children"""
+    entity_id: str = Field(..., description="Parent entity ID")
+    relation_type: str = Field("contains", description="Type of relation")
+    child_type: Optional[str] = Field(None, description="Filter by child type")
+
+
 @router.post("/sessions", response_model=SessionResponse)
 async def save_session(
     request: SessionRequest,
@@ -320,6 +359,10 @@ async def save_session(
         embeddings_generated = 0
         messages_saved = 0
         
+        # Get active embedding model
+        active_model = await db.get_active_embedding_model()
+        embedding_model_id = active_model['id'] if active_model else None
+        
         # Save messages with embeddings
         for msg in request.messages:
             embedding = None
@@ -332,12 +375,22 @@ async def save_session(
                     logger.warning(f"Failed to generate embedding for message: {e}")
                     # Continue without embedding
             
-            await db.save_message(
-                session_id=session_id,
-                role=msg.role,
-                content=msg.content,
-                embedding=embedding
-            )
+            # Use save_message_with_model if model_id is available
+            if embedding_model_id:
+                await db.save_message_with_model(
+                    session_id=session_id,
+                    role=msg.role,
+                    content=msg.content,
+                    embedding=embedding,
+                    embedding_model_id=embedding_model_id
+                )
+            else:
+                await db.save_message(
+                    session_id=session_id,
+                    role=msg.role,
+                    content=msg.content,
+                    embedding=embedding
+                )
             messages_saved += 1
         
         return SessionResponse(
@@ -396,6 +449,10 @@ async def generate_embeddings_for_session(
                 success_rate=100.0
             )
         
+        # Get active embedding model
+        active_model = await db.get_active_embedding_model()
+        embedding_model_id = active_model['id'] if active_model else None
+        
         # Process messages
         embeddings_generated = 0
         errors = 0
@@ -404,6 +461,21 @@ async def generate_embeddings_for_session(
             try:
                 embedding = await embedding_service.generate_embedding(msg['content'])
                 updated = await db.update_message_embedding(msg['id'], embedding)
+                
+                # Update embedding_model_id if available
+                if updated and embedding_model_id:
+                    try:
+                        await db.execute(
+                            """
+                            UPDATE messages
+                            SET embedding_model_id = $1
+                            WHERE id = $2 AND embedding_model_id IS NULL
+                            """,
+                            embedding_model_id,
+                            msg['id']
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to update embedding_model_id for message {msg['id']}: {e}")
                 
                 if updated:
                     embeddings_generated += 1
@@ -468,6 +540,10 @@ async def generate_embeddings_for_all_sessions(
                 success_rate=100.0
             )
         
+        # Get active embedding model
+        active_model = await db.get_active_embedding_model()
+        embedding_model_id = active_model['id'] if active_model else None
+        
         # Process messages
         embeddings_generated = 0
         errors = 0
@@ -476,6 +552,21 @@ async def generate_embeddings_for_all_sessions(
             try:
                 embedding = await embedding_service.generate_embedding(msg['content'])
                 updated = await db.update_message_embedding(msg['id'], embedding)
+                
+                # Update embedding_model_id if available
+                if updated and embedding_model_id:
+                    try:
+                        await db.execute(
+                            """
+                            UPDATE messages
+                            SET embedding_model_id = $1
+                            WHERE id = $2 AND embedding_model_id IS NULL
+                            """,
+                            embedding_model_id,
+                            msg['id']
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to update embedding_model_id for message {msg['id']}: {e}")
                 
                 if updated:
                     embeddings_generated += 1
@@ -501,6 +592,273 @@ async def generate_embeddings_for_all_sessions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate embeddings: {str(e)}"
+        )
+
+
+@router.post("/rag/search-messages", response_model=VectorSearchResponse)
+async def vector_search_messages(
+    request: VectorSearchRequest,
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+):
+    """
+    Perform vector similarity search on messages (RAG)
+    
+    Args:
+        request: Vector search request
+        embedding_service: Embedding service instance
+        
+    Returns:
+        Search results with similarity scores
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    try:
+        # Generate embedding for query text
+        query_embedding = await embedding_service.generate_embedding(request.query_text)
+        
+        # Perform vector search
+        results = await db.vector_search_messages(
+            query_embedding=query_embedding,
+            limit=request.limit,
+            session_id=request.session_id,
+            role=request.role,
+            similarity_threshold=request.similarity_threshold
+        )
+        
+        return VectorSearchResponse(
+            results=results,
+            query_text=request.query_text,
+            limit=request.limit,
+            total_results=len(results)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error performing vector search: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to perform vector search: {str(e)}"
+        )
+
+
+@router.post("/rag/search-entities", response_model=VectorSearchResponse)
+async def vector_search_entities(
+    request: EntityNodeSearchRequest,
+    embedding_service: EmbeddingService = Depends(get_embedding_service)
+):
+    """
+    Perform vector similarity search on entity nodes (RAG)
+    
+    Args:
+        request: Entity search request
+        embedding_service: Embedding service instance
+        
+    Returns:
+        Search results with similarity scores
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    try:
+        # Generate embedding for query text
+        query_embedding = await embedding_service.generate_embedding(request.query_text)
+        
+        # Perform vector search
+        results = await db.vector_search_entity_nodes(
+            query_embedding=query_embedding,
+            types=request.types,
+            limit=request.limit,
+            similarity_threshold=request.similarity_threshold,
+            active_only=request.active_only
+        )
+        
+        return VectorSearchResponse(
+            results=results,
+            query_text=request.query_text,
+            limit=request.limit,
+            total_results=len(results)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error performing entity search: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to perform entity search: {str(e)}"
+        )
+
+
+@router.get("/rules/critical", response_model=CriticalRulesResponse)
+async def get_critical_rules():
+    """
+    Get all critical rules from CriticalRules system node
+    
+    Returns:
+        List of critical rules
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    try:
+        rules = await db.get_critical_rules()
+        return CriticalRulesResponse(
+            rules=rules,
+            total_count=len(rules)
+        )
+    except Exception as e:
+        logger.error(f"Error loading critical rules: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load critical rules: {str(e)}"
+        )
+
+
+@router.get("/entities/{entity_id}/children")
+async def get_entity_children(
+    entity_id: str,
+    relation_type: str = Query("contains", description="Type of relation"),
+    child_type: Optional[str] = Query(None, description="Filter by child type")
+):
+    """
+    Get child entities linked to a parent entity
+    
+    Args:
+        entity_id: Parent entity UUID
+        relation_type: Type of relation (default: 'contains')
+        child_type: Optional filter by child type
+        
+    Returns:
+        List of child entities
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    try:
+        children = await db.get_entity_children(
+            entity_id=entity_id,
+            relation_type=relation_type,
+            child_type=child_type
+        )
+        return {
+            "entity_id": entity_id,
+            "relation_type": relation_type,
+            "children": children,
+            "total_count": len(children)
+        }
+    except Exception as e:
+        logger.error(f"Error loading entity children: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load entity children: {str(e)}"
+        )
+
+
+@router.post("/messages/{message_id}/link-entity")
+async def link_message_to_entity(
+    message_id: str,
+    entity_id: str = Query(..., description="Entity UUID"),
+    relation_type: str = Query(..., description="Relation type: 'uses', 'applies', 'executed_in'")
+):
+    """
+    Create a link between a message and an entity
+    
+    Args:
+        message_id: Message UUID
+        entity_id: Entity UUID
+        relation_type: Type of relation
+        
+    Returns:
+        Link ID
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    if relation_type not in ['uses', 'applies', 'executed_in']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="relation_type must be one of: 'uses', 'applies', 'executed_in'"
+        )
+    
+    try:
+        link_id = await db.create_message_entity_link(
+            message_id=message_id,
+            entity_id=entity_id,
+            relation_type=relation_type
+        )
+        return {
+            "link_id": link_id,
+            "message_id": message_id,
+            "entity_id": entity_id,
+            "relation_type": relation_type
+        }
+    except Exception as e:
+        logger.error(f"Error creating message-entity link: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create link: {str(e)}"
+        )
+
+
+@router.post("/sessions/{session_id}/link-entity")
+async def link_session_to_entity(
+    session_id: str,
+    entity_id: str = Query(..., description="Entity UUID"),
+    relation_type: str = Query(..., description="Relation type: 'executed_in', 'uses'")
+):
+    """
+    Create a link between a session and an entity
+    
+    Args:
+        session_id: Session UUID
+        entity_id: Entity UUID
+        relation_type: Type of relation
+        
+    Returns:
+        Link ID
+    """
+    if not db.pool:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Please set NEON_CONNECTION_STRING."
+        )
+    
+    if relation_type not in ['executed_in', 'uses']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="relation_type must be one of: 'executed_in', 'uses'"
+        )
+    
+    try:
+        link_id = await db.create_session_entity_link(
+            session_id=session_id,
+            entity_id=entity_id,
+            relation_type=relation_type
+        )
+        return {
+            "link_id": link_id,
+            "session_id": session_id,
+            "entity_id": entity_id,
+            "relation_type": relation_type
+        }
+    except Exception as e:
+        logger.error(f"Error creating session-entity link: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create link: {str(e)}"
         )
 
 

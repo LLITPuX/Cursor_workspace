@@ -172,6 +172,47 @@ Content-Type: application/json
 GET /api/v1/strategies
 ```
 
+## 🔍 RAG (Retrieval-Augmented Generation)
+
+Сервіс підтримує векторний пошук для RAG:
+
+### Векторний пошук по повідомленням
+```bash
+POST /api/v1/rag/search-messages
+Content-Type: application/json
+
+{
+  "query_text": "Як працювати з базою даних?",
+  "limit": 10,
+  "similarity_threshold": 0.7,
+  "session_id": "optional-session-id",
+  "role": "assistant"
+}
+```
+
+### Векторний пошук по сутностям
+```bash
+POST /api/v1/rag/search-entities
+Content-Type: application/json
+
+{
+  "query_text": "Як зберігати сесії?",
+  "types": ["Instruction", "Protocol"],
+  "limit": 10,
+  "similarity_threshold": 0.7,
+  "active_only": true
+}
+```
+
+## 📚 Робота з графом знань
+
+Сервіс надає API для роботи з графом знань:
+
+- `GET /api/v1/rules/critical` — отримання критичних правил
+- `GET /api/v1/entities/{entity_id}/children` — отримання дочірніх сутностей
+- `POST /api/v1/messages/{message_id}/link-entity` — створення зв'язків між повідомленнями та сутностями
+- `POST /api/v1/sessions/{session_id}/link-entity` — створення зв'язків між сесіями та сутностями
+
 ## 🧩 Стратегії чанкінгу
 
 ### Simple
