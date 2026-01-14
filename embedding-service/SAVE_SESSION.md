@@ -112,22 +112,69 @@ Invoke-RestMethod -Uri http://localhost:8000/api/v1/sessions `
     -ContentType 'application/json'
 ```
 
-## Використання скрипта для збереження тестової сесії
+## Використання універсального скрипта для збереження сесії
 
-### Запуск скрипта в контейнері:
+### Універсальний скрипт `save_session.py`
 
-```bash
-# Переконайтеся, що NEON_CONNECTION_STRING встановлено
-docker exec embedding-service python scripts/save_test_session.py
-```
+Скрипт приймає дані з різних джерел: stdin, файлу, аргументів командного рядка або через API.
 
-### Або локально (якщо встановлено залежності):
+#### 1. З stdin (JSON):
 
 ```bash
-cd embedding-service
-export NEON_CONNECTION_STRING="postgresql://..."
-python scripts/save_test_session.py
+echo '{"topic": "Test", "messages": [{"role": "user", "content": "Hello"}]}' | \
+  python scripts/save_session.py
 ```
+
+#### 2. З файлу:
+
+```bash
+# Створіть файл session.json з даними сесії
+python scripts/save_session.py --file session.json
+```
+
+#### 3. Через API (якщо сервер запущений):
+
+```bash
+python scripts/save_session.py --use-api --file session.json
+```
+
+#### 4. З аргументів командного рядка:
+
+```bash
+python scripts/save_session.py \
+  --topic "Test Session" \
+  --messages '[{"role": "user", "content": "Hello"}]'
+```
+
+#### 5. Через Docker:
+
+```bash
+docker exec -e NEON_CONNECTION_STRING="..." embedding-service \
+  python /app/scripts/save_session.py --file /app/session.json
+```
+
+#### Формат JSON файлу:
+
+```json
+{
+  "topic": "Назва сесії (опціонально)",
+  "messages": [
+    {"role": "user", "content": "Текст повідомлення"},
+    {"role": "assistant", "content": "Відповідь"}
+  ],
+  "generate_embeddings": true,
+  "metadata": {"source": "custom", "custom_field": "value"}
+}
+```
+
+#### Опції скрипта:
+
+- `--file, -f` - шлях до JSON файлу з даними сесії
+- `--use-api` - використовувати API endpoint замість прямого доступу до БД
+- `--topic, -t` - тема сесії
+- `--messages, -m` - JSON масив повідомлень
+- `--no-embeddings` - не генерувати embeddings
+- `--api-url` - URL API сервера (за замовчуванням: http://localhost:8000)
 
 ## Перевірка збережених даних
 
@@ -164,4 +211,5 @@ WHERE session_id = 'ваш-session-id';
 - Якщо генерація embedding не вдалася, повідомлення все одно зберігається (без embedding)
 - Розмірність embedding: **768** (модель EmbeddingGemma)
 - Стара колонка `embedding` (1536d) залишається для сумісності з OpenAI моделями
+
 

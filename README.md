@@ -21,8 +21,7 @@ C:\Cursor workspace\
 │   ├── chunking/               # Стратегії чанкінгу тексту
 │   ├── scripts/                # Утиліти та скрипти
 │   │   ├── generate_embeddings_for_all_sessions.py
-│   │   ├── save_current_session.py
-│   │   └── save_this_session.py
+│   │   └── save_session.py
 │   ├── docker-compose.yml      # Docker конфігурація
 │   └── README.md               # Документація embedding-service
 │
@@ -142,16 +141,42 @@ cd embedding-service
 python scripts/generate_embeddings_for_all_sessions.py
 ```
 
-### Збереження поточної сесії
+### Збереження сесії
+
+**Універсальний скрипт `save_session.py`** приймає дані з різних джерел:
 
 ```bash
+# 1. З stdin (JSON)
+echo '{"topic": "Test", "messages": [{"role": "user", "content": "Hello"}]}' | \
+  python scripts/save_session.py
+
+# 2. З файлу
+python scripts/save_session.py --file session.json
+
+# 3. Через API (якщо сервер запущений)
+python scripts/save_session.py --use-api --file session.json
+
+# 4. З аргументів командного рядка
+python scripts/save_session.py \
+  --topic "Test Session" \
+  --messages '[{"role": "user", "content": "Hello"}]'
+
 # Через Docker
 docker exec -e NEON_CONNECTION_STRING="..." embedding-service \
-  python /app/scripts/save_this_session.py
+  python /app/scripts/save_session.py --file /app/session.json
+```
 
-# Локально
-cd embedding-service
-python scripts/save_this_session.py
+**Формат JSON файлу:**
+```json
+{
+  "topic": "Назва сесії (опціонально)",
+  "messages": [
+    {"role": "user", "content": "Текст повідомлення"},
+    {"role": "assistant", "content": "Відповідь"}
+  ],
+  "generate_embeddings": true,
+  "metadata": {"source": "custom", "custom_field": "value"}
+}
 ```
 
 ---
