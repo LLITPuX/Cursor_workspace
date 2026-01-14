@@ -188,6 +188,22 @@ Content-Type: application/json
 
 ## 📚 Робота з графом знань
 
+### Критичні правила системи
+
+Система містить 9 критичних правил, які завантажуються автоматично:
+
+1. **AlwaysConfirmBeforeChanges** - ЗАВЖДИ отримуй явне підтвердження перед внесенням змін
+2. **AppendOnlyPrinciple** - Ніколи не видаляй дані, тільки архівуй
+3. **EntityRelationships** - Завжди створюй зв'язки через entity_edges
+4. **ProjectBranching** - Нові проекти = нові гілки в Neon
+5. **SessionContextSave** - Зберігай повідомлення з embeddings та зв'язками
+6. **SourcePriority** - Пріоритет джерел інформації
+7. **TemporalFacts** - Темпоральність для всіх фактів
+8. **UseExistingTools** - Перевіряй наявність існуючих рішень
+9. **VerifyBeforeAct** - Перевіряй існування перед згадуванням
+
+Детальні описи правил доступні через API: `GET /api/v1/rules/critical`
+
 ### Отримання критичних правил
 ```bash
 GET /api/v1/rules/critical
@@ -242,6 +258,87 @@ ORDER BY version;
 ---
 
 ## 📝 Скрипти та утиліти
+
+### Застосування міграцій
+
+**Автоматичний скрипт для застосування міграцій** `scripts/run_migrations.py`:
+
+```bash
+# Dry run (перевірка що буде застосовано)
+python scripts/run_migrations.py --dry-run
+
+# Застосування міграцій
+NEON_CONNECTION_STRING="..." python scripts/run_migrations.py
+
+# Або з явним connection string
+python scripts/run_migrations.py --connection-string "postgresql://..."
+```
+
+Скрипт автоматично:
+- Знаходить всі міграції в `migrations/` директорії
+- Перевіряє які вже застосовані через `schema_migrations`
+- Застосовує тільки нові міграції
+- Перевіряє checksums для безпеки
+
+### Ініціалізація графу знань
+
+**Seed скрипт** для створення базових правил, інструкцій та протоколів:
+
+```bash
+# Ініціалізація базових даних
+NEON_CONNECTION_STRING="..." python scripts/seed_knowledge_graph.py
+
+# Або з явним connection string
+python scripts/seed_knowledge_graph.py --connection-string "postgresql://..."
+```
+
+Скрипт створює:
+- CriticalRules system node
+- 9 базових правил (включаючи AlwaysConfirmBeforeChanges)
+- 5 базових інструкцій (включаючи ChangeConfirmationInstruction)
+- 2 протоколи (Bootstrap Protocol та SafeChangeProtocol)
+- Всі необхідні зв'язки між сутностями
+
+### Робота з графом знань (CLI)
+
+**CLI інструмент** для управління правилами, інструкціями та протоколами:
+
+```bash
+# Створити правило
+python scripts/knowledge_graph_cli.py create-rule \
+  --name "MyRule" \
+  --description "Опис правила" \
+  --link-to-critical
+
+# Створити інструкцію
+python scripts/knowledge_graph_cli.py create-instruction \
+  --name "MyInstruction" \
+  --description "Опис інструкції" \
+  --rule-ids "rule-id-1" "rule-id-2"
+
+# Створити протокол
+python scripts/knowledge_graph_cli.py create-protocol \
+  --name "MyProtocol" \
+  --description "Опис протоколу" \
+  --instruction-ids "inst-id-1" "inst-id-2" \
+  --triggers "тригер 1" "тригер 2"
+
+# Список сутностей
+python scripts/knowledge_graph_cli.py list --type Rule
+python scripts/knowledge_graph_cli.py list --type Instruction
+
+# Показати деталі сутності
+python scripts/knowledge_graph_cli.py show --id "entity-id"
+
+# Пошук сутностей
+python scripts/knowledge_graph_cli.py search --query "пошук"
+
+# Зв'язати дві сутності
+python scripts/knowledge_graph_cli.py link \
+  --source-id "source-id" \
+  --target-id "target-id" \
+  --relation-type "uses"
+```
 
 ### Генерація embeddings для всіх сесій
 
