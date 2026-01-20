@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class BaseClassifier:
     """Base class for text classifiers"""
     
-    def __init__(self, model_name: str = "microsoft/deberta-v3-base"):
+    def __init__(self, model_name: str = "cross-encoder/nli-deberta-v3-base"):
         """
         Initialize base classifier
         

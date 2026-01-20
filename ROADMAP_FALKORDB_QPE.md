@@ -170,7 +170,7 @@ graph = client.select_graph('agent_memory')
 
 #### Задачі:
 - [x] Встановити `transformers` та `torch`
-- [x] Завантажити DeBERTa v3 модель (`microsoft/deberta-v3-base`)
+- [x] Завантажити DeBERTa v3 модель (`cross-encoder/nli-deberta-v3-base`) ✅ **Виправлено:** змінено на zero-shot сумісну модель
 - [x] Створити три окремі класифікатори:
   - `SentimentClassifier` (4 класи: `neutral`, `positive_feedback`, `negative_feedback`, `frustrated`)
   - `IntentClassifier` (6 класів, multi-label: `information_seeking`, `capability_inquiry`, `task_execution`, `project_discussion`, `error_resolution`, `clarification_needed`)
@@ -184,18 +184,25 @@ graph = client.select_graph('agent_memory')
 
 #### Створені файли:
 - `falkordb-service/app/classification.py` - модуль з усіма класифікаторами
-- `falkordb-service/requirements.txt` - оновлено (додано transformers, torch, accelerate, sentencepiece)
+- `falkordb-service/requirements.txt` - оновлено (додано transformers, torch, accelerate, sentencepiece, **protobuf>=3.20.0** ✅)
 - `falkordb-service/Dockerfile` - оновлено (додано системні залежності для torch)
 - `falkordb-service/docker-compose.yml` - оновлено (збільшено start_period для завантаження моделей)
 - `falkordb-service/app/api/routes.py` - оновлено (замінено mock-функції на реальні класифікатори)
 
 #### Результат:
 - ✅ П'ять класифікаторів працюють (три для запитів, два для відповідей)
-- ✅ Zero-shot класифікація через DeBERTa v3 pipeline
+- ✅ Zero-shot класифікація через `cross-encoder/nli-deberta-v3-base` pipeline ✅ **Виправлено:** використовується правильна zero-shot модель
 - ✅ Результати інтегровані в QPE endpoints (`/process-query` та `/process-assistant-response`)
 - ✅ Обробка помилок з fallback на значення за замовчуванням
 - ✅ Lazy loading моделей (singleton pattern)
 - ✅ Підтримка GPU (автоматично через transformers)
+- ✅ **Виправлено:** Додано `protobuf>=3.20.0` для коректної роботи transformers
+
+#### Виправлені проблеми (20 січня 2026):
+1. ✅ **КРИТИЧНО:** Додано `protobuf>=3.20.0` до requirements.txt - виправлено помилку завантаження класифікаторів
+2. ✅ **КРИТИЧНО:** Змінено модель з `microsoft/deberta-v3-base` на `cross-encoder/nli-deberta-v3-base` - тепер використовується правильна zero-shot сумісна модель
+3. ✅ Підтверджено успішну роботу: всі класифікатори завантажуються та працюють коректно
+4. ✅ Протестовано на реальних даних: API повертає правильні результати класифікації
 
 #### Технічні деталі:
 ```python
@@ -624,7 +631,7 @@ python scripts/save_to_falkordb.py --file saved_sessions/session_2026-01-20_falk
 
 - [FalkorDB Documentation](https://docs.falkordb.com/)
 - [FalkorDB Python Client](https://github.com/FalkorDB/falkordb-py)
-- [DeBERTa v3 Model](https://huggingface.co/microsoft/deberta-v3-base)
+- [Cross-Encoder NLI DeBERTa v3 Model](https://huggingface.co/cross-encoder/nli-deberta-v3-base) (використовується для zero-shot класифікації)
 - [GLINER v2.1](https://github.com/urchade/gliner)
 - [EmbGEMMA](https://ollama.com/library/embeddinggemma)
 
