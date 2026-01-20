@@ -78,24 +78,42 @@ graph = client.select_graph('agent_memory')
 ### Етап 2: QPE Service - Базова структура
 **Тривалість:** 2-3 дні  
 **Пріоритет:** Високий  
-**Статус:** Не розпочато
+**Статус:** ✅ Завершено
 
 #### Задачі:
-- [ ] Створити Docker Compose конфігурацію для QPE Service
-- [ ] Створити базову структуру сервісу (FastAPI)
-- [ ] Endpoint `/api/v1/qpe/process-query`:
+- [x] Створити Docker Compose конфігурацію для QPE Service
+- [x] Створити базову структуру сервісу (FastAPI)
+- [x] Endpoint `/api/v1/qpe/process-query`:
   - Приймає: `{"query": "текст запиту користувача"}`
   - Повертає: структурований JSON з результатами обробки
-- [ ] Endpoint `/api/v1/qpe/process-assistant-response`:
+- [x] Endpoint `/api/v1/qpe/process-assistant-response`:
   - Приймає: `{"response": "текст відповіді агента", "structure": {"analysis": "...", "response": "...", "questions": "..."}}`
   - Повертає: структурований JSON з результатами обробки
-- [ ] Базова структура даних для результатів
-- [ ] Health check endpoint `/api/v1/qpe/health`
+- [x] Базова структура даних для результатів
+- [x] Health check endpoint `/api/v1/qpe/health`
+
+#### Створені файли:
+- `falkordb-service/docker-compose.yml` - оновлено (додано сервіси `ollama` та `qpe-service`)
+- `falkordb-service/Dockerfile` - Docker образ для QPE Service
+- `falkordb-service/app/main.py` - FastAPI додаток
+- `falkordb-service/app/config.py` - налаштування сервісу
+- `falkordb-service/app/embedding.py` - сервіс генерації embeddings через Ollama
+- `falkordb-service/app/api/routes.py` - QPE endpoints
+- `falkordb-service/app/models/request.py` - Pydantic моделі для запитів
+- `falkordb-service/app/models/response.py` - Pydantic моделі для відповідей
+- `falkordb-service/requirements.txt` - оновлено (FastAPI, uvicorn, httpx, pydantic, falkordb)
+- `falkordb-service/README.md` - оновлено з документацією QPE Service
 
 #### Результат:
-- QPE Service запускається в Docker
-- Два endpoints готові до інтеграції компонентів
-- Базова структура даних визначена
+- ✅ QPE Service запускається в Docker (порт 8001)
+- ✅ Три сервіси працюють: FalkorDB, Ollama, QPE Service
+- ✅ Два endpoints готові до інтеграції компонентів:
+  - `POST /api/v1/qpe/process-query` - обробка запитів користувача
+  - `POST /api/v1/qpe/process-assistant-response` - обробка відповідей агента
+- ✅ Health check endpoint `/api/v1/qpe/health` працює
+- ✅ Базова структура даних визначена (Pydantic моделі)
+- ✅ Embeddings генеруються через Ollama (модель `embeddinggemma:latest`)
+- ✅ Mock-функції для класифікації та вилучення сутностей (будуть замінені в Етапах 3-4)
 
 #### Структура відповідей QPE:
 
