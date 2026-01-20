@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # FalkorDB service
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: falkordb
+    ports:
+      - "6379:6379"
+      - "3000:3000"  # FalkorDB Browser UI
+    volumes:
+      - falkordb_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - falkordb-network
+
+volumes:
+  falkordb_data:
+    driver: local
+
+networks:
+  falkordb-network:
+    driver: bridge

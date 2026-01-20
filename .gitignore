@@ -28,3 +28,6 @@ Thumbs.db
 # Ігноруємо вкладені проекти, щоб воркспейс залишався чистим шаблоном
 Io/
 projects/
+
+# Saved sessions
+saved_sessions/
