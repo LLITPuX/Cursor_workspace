@@ -9,3 +9,9 @@ pydantic-settings==2.1.0
 
 # HTTP client for Ollama
 httpx==0.25.2
+
+# Machine Learning - Transformers and PyTorch
+transformers>=4.35.0
+torch>=2.0.0
+accelerate>=0.24.0
+sentencepiece>=0.1.99

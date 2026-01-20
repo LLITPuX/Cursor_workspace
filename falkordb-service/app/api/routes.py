@@ -9,6 +9,13 @@ from app.models.response import (
     EntityModel
 )
 from app.embedding import EmbeddingService
+from app.classification import (
+    get_sentiment_classifier,
+    get_intent_classifier,
+    get_complexity_classifier,
+    get_response_type_classifier,
+    get_response_complexity_classifier
+)
 from app.config import settings
 from falkordb import FalkorDB
 import logging
@@ -38,41 +45,101 @@ def get_falkordb_client():
         return None
 
 
-# Mock classification functions (will be replaced in later stages)
-def mock_classify_sentiment(text: str) -> str:
-    """Mock sentiment classification"""
-    # TODO: Replace with DeBERTa v3 in Stage 3
-    return "neutral"
+# Classification functions with fallback to defaults
+def classify_sentiment(text: str) -> str:
+    """
+    Classify sentiment of user query using DeBERTa v3
+    
+    Args:
+        text: User query text
+        
+    Returns:
+        Sentiment label with fallback to "neutral"
+    """
+    try:
+        classifier = get_sentiment_classifier()
+        return classifier.classify(text)
+    except Exception as e:
+        logger.warning(f"Sentiment classification failed, using default: {e}")
+        return "neutral"
 
 
-def mock_classify_intents(text: str) -> List[str]:
-    """Mock intent classification"""
-    # TODO: Replace with DeBERTa v3 in Stage 3
-    return ["information_seeking"]
+def classify_intents(text: str) -> List[str]:
+    """
+    Classify intents of user query using DeBERTa v3 (multi-label)
+    
+    Args:
+        text: User query text
+        
+    Returns:
+        List of intent labels with fallback to ["information_seeking"]
+    """
+    try:
+        classifier = get_intent_classifier()
+        return classifier.classify(text)
+    except Exception as e:
+        logger.warning(f"Intent classification failed, using default: {e}")
+        return ["information_seeking"]
 
 
-def mock_classify_complexity(text: str) -> str:
-    """Mock complexity classification"""
-    # TODO: Replace with DeBERTa v3 in Stage 3
-    return "simple_question"
+def classify_complexity(text: str) -> str:
+    """
+    Classify complexity of user query using DeBERTa v3
+    
+    Args:
+        text: User query text
+        
+    Returns:
+        Complexity label with fallback to "simple_question"
+    """
+    try:
+        classifier = get_complexity_classifier()
+        return classifier.classify(text)
+    except Exception as e:
+        logger.warning(f"Complexity classification failed, using default: {e}")
+        return "simple_question"
 
 
 def mock_extract_entities(text: str) -> List[EntityModel]:
-    """Mock entity extraction"""
+    """Mock entity extraction (will be replaced with GLINER v2.1 in Stage 4)"""
     # TODO: Replace with GLINER v2.1 in Stage 4
     return []
 
 
-def mock_classify_response_type(text: str) -> str:
-    """Mock response type classification"""
-    # TODO: Replace with DeBERTa v3 in Stage 3
-    return "explanation"
+def classify_response_type(text: str) -> str:
+    """
+    Classify type of assistant response using DeBERTa v3
+    
+    Args:
+        text: Assistant response text
+        
+    Returns:
+        Response type label with fallback to "explanation"
+    """
+    try:
+        classifier = get_response_type_classifier()
+        return classifier.classify(text)
+    except Exception as e:
+        logger.warning(f"Response type classification failed, using default: {e}")
+        return "explanation"
 
 
-def mock_classify_response_complexity(text: str) -> str:
-    """Mock response complexity classification"""
-    # TODO: Replace with DeBERTa v3 in Stage 3
-    return "simple"
+def classify_response_complexity(text: str) -> str:
+    """
+    Classify complexity of assistant response using DeBERTa v3
+    
+    Args:
+        text: Assistant response text
+        
+    Returns:
+        Complexity label with fallback to "simple"
+    """
+    try:
+        classifier = get_response_complexity_classifier()
+        return classifier.classify(text)
+    except Exception as e:
+        logger.warning(f"Response complexity classification failed, using default: {e}")
+        return "simple"
 
 
 # Routes
@@ -124,10 +191,10 @@ async def process_query(
         # Generate embedding
         embedding = await embedding_service.generate_embedding(request.query)
         
-        # Mock classifications (will be replaced in Stage 3)
-        sentiment = mock_classify_sentiment(request.query)
-        intents = mock_classify_intents(request.query)
-        complexity = mock_classify_complexity(request.query)
+        # Classify using DeBERTa v3
+        sentiment = classify_sentiment(request.query)
+        intents = classify_intents(request.query)
+        complexity = classify_complexity(request.query)
         
         # Mock entity extraction (will be replaced in Stage 4)
         entities = mock_extract_entities(request.query)
@@ -189,9 +256,9 @@ async def process_assistant_response(
         if questions_text:
             embeddings["questions"] = await embedding_service.generate_embedding(questions_text)
         
-        # Mock classifications (will be replaced in Stage 3)
-        response_type = mock_classify_response_type(request.response)
-        complexity = mock_classify_response_complexity(request.response)
+        # Classify using DeBERTa v3
+        response_type = classify_response_type(request.response)
+        complexity = classify_response_complexity(request.response)
         
         # Mock entity extraction (will be replaced in Stage 4)
         analysis_entities = mock_extract_entities(analysis_text) if analysis_text else []

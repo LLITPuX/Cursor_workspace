@@ -166,26 +166,36 @@ graph = client.select_graph('agent_memory')
 ### Етап 3: Інтеграція DeBERTa v3 для класифікації
 **Тривалість:** 3-4 дні  
 **Пріоритет:** Високий  
-**Статус:** Не розпочато
+**Статус:** ✅ Завершено
 
 #### Задачі:
-- [ ] Встановити `transformers` та `torch`
-- [ ] Завантажити DeBERTa v3 модель (`microsoft/deberta-v3-base`)
-- [ ] Створити три окремі класифікатори:
+- [x] Встановити `transformers` та `torch`
+- [x] Завантажити DeBERTa v3 модель (`microsoft/deberta-v3-base`)
+- [x] Створити три окремі класифікатори:
   - `SentimentClassifier` (4 класи: `neutral`, `positive_feedback`, `negative_feedback`, `frustrated`)
   - `IntentClassifier` (6 класів, multi-label: `information_seeking`, `capability_inquiry`, `task_execution`, `project_discussion`, `error_resolution`, `clarification_needed`)
   - `ComplexityClassifier` (4 класи: `simple_question`, `structured_prompt`, `architectural`, `requires_clarification`)
-- [ ] Створити класифікатор для відповідей агента:
+- [x] Створити класифікатор для відповідей агента:
   - `ResponseTypeClassifier` (4 класи: `explanation`, `code_proposal`, `analysis`, `question`)
   - `ResponseComplexityClassifier` (3 класи: `simple`, `detailed`, `architectural`)
-- [ ] Реалізувати zero-shot підхід (без fine-tuning на початку)
-- [ ] Інтегрувати класифікатори в QPE Service
-- [ ] Тестування на прикладах запитів та відповідей
+- [x] Реалізувати zero-shot підхід (без fine-tuning на початку)
+- [x] Інтегрувати класифікатори в QPE Service
+- [x] Тестування на прикладах запитів та відповідей
+
+#### Створені файли:
+- `falkordb-service/app/classification.py` - модуль з усіма класифікаторами
+- `falkordb-service/requirements.txt` - оновлено (додано transformers, torch, accelerate, sentencepiece)
+- `falkordb-service/Dockerfile` - оновлено (додано системні залежності для torch)
+- `falkordb-service/docker-compose.yml` - оновлено (збільшено start_period для завантаження моделей)
+- `falkordb-service/app/api/routes.py` - оновлено (замінено mock-функції на реальні класифікатори)
 
 #### Результат:
-- Три класифікатори для запитів працюють
-- Два класифікатори для відповідей працюють
-- Результати інтегровані в QPE endpoints
+- ✅ П'ять класифікаторів працюють (три для запитів, два для відповідей)
+- ✅ Zero-shot класифікація через DeBERTa v3 pipeline
+- ✅ Результати інтегровані в QPE endpoints (`/process-query` та `/process-assistant-response`)
+- ✅ Обробка помилок з fallback на значення за замовчуванням
+- ✅ Lazy loading моделей (singleton pattern)
+- ✅ Підтримка GPU (автоматично через transformers)
 
 #### Технічні деталі:
 ```python
