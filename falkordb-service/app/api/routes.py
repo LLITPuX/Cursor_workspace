@@ -16,6 +16,12 @@ from app.classification import (
     get_response_type_classifier,
     get_response_complexity_classifier
 )
+from app.entity_extraction import (
+    get_query_extractor,
+    get_response_extractor,
+    QUERY_ENTITY_TYPES,
+    RESPONSE_ENTITY_TYPES
+)
 from app.config import settings
 from falkordb import FalkorDB
 import logging
@@ -100,10 +106,26 @@ def classify_complexity(text: str) -> str:
         return "simple_question"
 
 
-def mock_extract_entities(text: str) -> List[EntityModel]:
-    """Mock entity extraction (will be replaced with GLINER v2.1 in Stage 4)"""
-    # TODO: Replace with GLINER v2.1 in Stage 4
-    return []
+def extract_entities(text: str, entity_types: List[str]) -> List[EntityModel]:
+    """
+    Extract entities from text using GLINER v2.1
+    
+    Args:
+        text: Text to extract entities from
+        entity_types: List of entity types to look for
+        
+    Returns:
+        List of extracted entities with fallback to empty list
+    """
+    if not text or not text.strip():
+        return []
+    
+    try:
+        extractor = get_query_extractor()
+        return extractor.extract(text, entity_types)
+    except Exception as e:
+        logger.warning(f"Entity extraction failed, using empty list: {e}")
+        return []
 
 
 def classify_response_type(text: str) -> str:
@@ -196,8 +218,8 @@ async def process_query(
         intents = classify_intents(request.query)
         complexity = classify_complexity(request.query)
         
-        # Mock entity extraction (will be replaced in Stage 4)
-        entities = mock_extract_entities(request.query)
+        # Extract entities using GLINER v2.1
+        entities = extract_entities(request.query, QUERY_ENTITY_TYPES)
         
         return ProcessQueryResponse(
             query=request.query,
@@ -260,9 +282,9 @@ async def process_assistant_response(
         response_type = classify_response_type(request.response)
         complexity = classify_response_complexity(request.response)
         
-        # Mock entity extraction (will be replaced in Stage 4)
-        analysis_entities = mock_extract_entities(analysis_text) if analysis_text else []
-        response_entities = mock_extract_entities(response_text) if response_text else []
+        # Extract entities using GLINER v2.1
+        analysis_entities = extract_entities(analysis_text, RESPONSE_ENTITY_TYPES) if analysis_text else []
+        response_entities = extract_entities(response_text, RESPONSE_ENTITY_TYPES) if response_text else []
         
         return ProcessAssistantResponseResponse(
             response=request.response,
