@@ -106,13 +106,14 @@ def classify_complexity(text: str) -> str:
         return "simple_question"
 
 
-def extract_entities(text: str, entity_types: List[str]) -> List[EntityModel]:
+def extract_entities(text: str, entity_types: List[str], use_response_extractor: bool = False) -> List[EntityModel]:
     """
     Extract entities from text using GLINER v2.1
     
     Args:
         text: Text to extract entities from
         entity_types: List of entity types to look for
+        use_response_extractor: If True, use response extractor (for assistant responses)
         
     Returns:
         List of extracted entities with fallback to empty list
@@ -121,7 +122,7 @@ def extract_entities(text: str, entity_types: List[str]) -> List[EntityModel]:
         return []
     
     try:
-        extractor = get_query_extractor()
+        extractor = get_response_extractor() if use_response_extractor else get_query_extractor()
         return extractor.extract(text, entity_types)
     except Exception as e:
         logger.warning(f"Entity extraction failed, using empty list: {e}")
@@ -282,9 +283,9 @@ async def process_assistant_response(
         response_type = classify_response_type(request.response)
         complexity = classify_response_complexity(request.response)
         
-        # Extract entities using GLINER v2.1
-        analysis_entities = extract_entities(analysis_text, RESPONSE_ENTITY_TYPES) if analysis_text else []
-        response_entities = extract_entities(response_text, RESPONSE_ENTITY_TYPES) if response_text else []
+        # Extract entities using GLINER v2.1 (use response extractor for assistant responses)
+        analysis_entities = extract_entities(analysis_text, RESPONSE_ENTITY_TYPES, use_response_extractor=True) if analysis_text else []
+        response_entities = extract_entities(response_text, RESPONSE_ENTITY_TYPES, use_response_extractor=True) if response_text else []
         
         return ProcessAssistantResponseResponse(
             response=request.response,
