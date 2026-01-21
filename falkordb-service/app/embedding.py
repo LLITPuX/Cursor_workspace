@@ -1,5 +1,6 @@
 """Embedding generation service using Ollama"""
 import httpx
+import asyncio
 from typing import List, Optional
 from app.config import settings
 import logging
@@ -53,10 +54,12 @@ class EmbeddingService:
                     raise ValueError(f"No embedding returned from Ollama API")
                 
                 if len(embedding) != self.dimension:
-                    logger.warning(
+                    error_msg = (
                         f"Embedding dimension mismatch: expected {self.dimension}, "
-                        f"got {len(embedding)}"
+                        f"got {len(embedding)}. Model may be misconfigured."
                     )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
                 
                 return embedding
                 
@@ -69,64 +72,65 @@ class EmbeddingService:
     
     async def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """
-        Generate embeddings for multiple texts
+        Generate embeddings for multiple texts using parallel processing
         
         Args:
             texts: List of texts to embed
             
         Returns:
-            List of embedding vectors
+            List of embedding vectors in the same order as input texts
         """
         if not texts:
             return []
         
-        # Ollama API doesn't support batch processing, so we process sequentially
-        # This could be optimized with asyncio.gather for parallel requests
-        embeddings = []
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for text in texts:
-                try:
-                    response = await client.post(
-                        f"{self.base_url}/api/embeddings",
-                        json={
-                            "model": self.model,
-                            "prompt": text
-                        }
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    embedding = data.get("embedding", [])
-                    if not embedding:
-                        raise ValueError(f"No embedding returned for text: {text[:50]}...")
-                    
-                    if len(embedding) != self.dimension:
-                        logger.warning(
-                            f"Embedding dimension mismatch: expected {self.dimension}, "
-                            f"got {len(embedding)}"
-                        )
-                    
-                    embeddings.append(embedding)
-                    
-                except httpx.HTTPError as e:
-                    logger.error(f"HTTP error generating embedding for text: {e}")
-                    raise
-                except Exception as e:
-                    logger.error(f"Error generating embedding: {e}")
-                    raise
-        
-        return embeddings
+        # Use asyncio.gather for parallel processing
+        # Ollama API doesn't support batch processing, but we can make parallel requests
+        try:
+            embeddings = await asyncio.gather(*[
+                self.generate_embedding(text) for text in texts
+            ])
+            return embeddings
+        except Exception as e:
+            logger.error(f"Error in batch embedding generation: {e}")
+            raise
     
     async def health_check(self) -> bool:
         """
-        Check if Ollama service is available
+        Check if Ollama service is available and model is loaded
         
         Returns:
-            True if service is available, False otherwise
+            True if service is available and model is loaded, False otherwise
         """
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
+                # Check if Ollama is available
                 response = await client.get(f"{self.base_url}/api/tags")
-                return response.status_code == 200
-        except Exception:
+                if response.status_code != 200:
+                    return False
+                
+                # Check if model is loaded
+                data = response.json()
+                models = data.get("models", [])
+                model_names = [model.get("name", "") for model in models]
+                
+                if self.model not in model_names:
+                    logger.warning(
+                        f"Model {self.model} not found in Ollama. "
+                        f"Available models: {model_names}"
+                    )
+                    return False
+                
+                # Test embedding generation with a small text
+                try:
+                    test_embedding = await self.generate_embedding("test")
+                    if not test_embedding or len(test_embedding) != self.dimension:
+                        logger.warning("Health check: test embedding generation failed")
+                        return False
+                except Exception as e:
+                    logger.warning(f"Health check: test embedding failed: {e}")
+                    return False
+                
+                return True
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
             return False
