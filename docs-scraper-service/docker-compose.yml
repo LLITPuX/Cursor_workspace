@@ -1,0 +1,36 @@
+services:
+  docs-scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docs-scraper-service
+    ports:
+      - "8002:8002"
+    environment:
+      # API Configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8002
+      - API_TITLE=Docs Scraper Service
+      - API_VERSION=1.0.0
+      # Storage Configuration
+      - DOCS_ROOT=/app/docs
+      # Scraper Configuration
+      - DEFAULT_TIMEOUT=30000
+      - DEFAULT_WAIT_TIME=1000
+      - MAX_CONCURRENT=3
+      # Playwright Configuration
+      - HEADLESS=true
+      - VIEWPORT_WIDTH=1920
+      - VIEWPORT_HEIGHT=1080
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      # Bind mount - данные сохраняются напрямую на локальный диск
+      - ./docs:/app/docs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/api/v1/scraper/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
