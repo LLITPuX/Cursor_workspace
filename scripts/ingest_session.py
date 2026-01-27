@@ -22,6 +22,41 @@ except ImportError:
     sys.exit(1)
 
 
+def parse_datetime(date_str: str) -> Dict[str, Optional[str]]:
+    """
+    Парсить рядок дати та часу, повертає date та time окремо.
+    
+    Підтримує формати:
+    - "20 січня 2026, 14:30:00" (новий формат з часом)
+    - "20 січня 2026" (старий формат без часу)
+    
+    Args:
+        date_str: Рядок з датою та опціонально часом
+        
+    Returns:
+        Словник з 'date' та 'time' (time може бути None)
+    """
+    date_str = date_str.strip()
+    
+    # Перевірити чи є час у форматі ", HH:MM:SS"
+    time_match = re.search(r',\s*(\d{1,2}:\d{2}:\d{2})$', date_str)
+    
+    if time_match:
+        # Є час - розділити дату та час
+        time_str = time_match.group(1)
+        date_only = date_str[:time_match.start()].strip()
+        return {
+            'date': date_only,
+            'time': time_str
+        }
+    else:
+        # Немає часу - тільки дата
+        return {
+            'date': date_str,
+            'time': None
+        }
+
+
 def parse_session_file(file_path: str) -> Dict[str, Any]:
     """
     Парсить MD-файл сесії та витягує метадані та повідомлення.
@@ -41,10 +76,17 @@ def parse_session_file(file_path: str) -> Dict[str, Any]:
     if header_match:
         metadata['title'] = header_match.group(1).strip()
     
-    # Витягнути дату
+    # Витягнути дату та час
     date_match = re.search(r'\*\*Дата:\*\*\s*(.+?)$', content, re.MULTILINE)
     if date_match:
-        metadata['date'] = date_match.group(1).strip()
+        date_time_str = date_match.group(1).strip()
+        # Парсити дату та час
+        parsed_dt = parse_datetime(date_time_str)
+        metadata['date'] = parsed_dt['date']
+        metadata['time'] = parsed_dt['time']
+    else:
+        metadata['date'] = ''
+        metadata['time'] = None
     
     # Витягнути тему
     topic_match = re.search(r'\*\*Тема:\*\*\s*(.+?)$', content, re.MULTILINE)
@@ -154,6 +196,13 @@ def create_session_node(
     """Створює вузол Session з темпоральними метками."""
     topic = metadata.get('topic', metadata.get('title', 'Unknown'))
     date = metadata.get('date', '')
+    time = metadata.get('time', None)
+    
+    # Формувати повну дату з часом для збереження в граф
+    # Якщо час є, додаємо його до дати
+    date_time_str = date
+    if time:
+        date_time_str = f"{date}, {time}"
     
     query = """
     CREATE (s:Session {
@@ -161,6 +210,8 @@ def create_session_node(
         topic: $topic,
         file_path: $file_path,
         date: $date,
+        time: $time,
+        date_time: $date_time,
         created_at: datetime(),
         valid_from: datetime(),
         valid_to: null
@@ -174,7 +225,9 @@ def create_session_node(
             'session_id': session_id,
             'topic': topic,
             'file_path': file_path,
-            'date': date
+            'date': date,
+            'time': time if time else '',
+            'date_time': date_time_str
         }
     )
 
