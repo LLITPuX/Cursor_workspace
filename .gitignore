@@ -24,6 +24,13 @@ Thumbs.db
 # VS Code
 .vscode/
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
 # --- Private Projects (Local Development) ---
 # Ігноруємо вкладені проекти, щоб воркспейс залишався чистим шаблоном
 Io/
