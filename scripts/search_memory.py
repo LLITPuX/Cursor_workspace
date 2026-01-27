@@ -242,7 +242,7 @@ def format_search_results(
 
 async def search_memory(
     query: str,
-    graph_name: str = "cursor_graph",
+    graph_name: str = os.getenv("FALKORDB_GRAPH_NAME", "agent_memory"),
     falkordb_host: str = "localhost",
     falkordb_port: int = 6379,
     qpe_url: str = "http://localhost:8001"

@@ -182,9 +182,8 @@ async def process_message_with_qpe(
 
 
 def get_current_timestamp() -> str:
-    """Повертає поточний timestamp для використання в Cypher."""
-    # FalkorDB використовує datetime() функцію
-    return "datetime()"
+    """Повертає поточний timestamp в ISO форматі для використання в Cypher."""
+    return datetime.now().isoformat()
 
 
 def create_session_node(
@@ -204,6 +203,7 @@ def create_session_node(
     if time:
         date_time_str = f"{date}, {time}"
     
+    timestamp = get_current_timestamp()
     query = """
     CREATE (s:Session {
         id: $session_id,
@@ -212,8 +212,8 @@ def create_session_node(
         date: $date,
         time: $time,
         date_time: $date_time,
-        created_at: datetime(),
-        valid_from: datetime(),
+        created_at: $timestamp,
+        valid_from: $timestamp,
         valid_to: null
     })
     RETURN s
@@ -227,7 +227,8 @@ def create_session_node(
             'file_path': file_path,
             'date': date,
             'time': time if time else '',
-            'date_time': date_time_str
+            'date_time': date_time_str,
+            'timestamp': timestamp
         }
     )
 
@@ -241,6 +242,7 @@ def create_message_node(
     prev_message_id: Optional[str] = None
 ) -> None:
     """Створює вузол Message та зв'язки з темпоральними метками."""
+    timestamp = get_current_timestamp()
     # Створення вузла Message
     query = """
     MATCH (s:Session {id: $session_id})
@@ -248,13 +250,13 @@ def create_message_node(
         id: $message_id,
         role: $role,
         content: $content,
-        created_at: datetime(),
-        valid_from: datetime(),
+        created_at: $timestamp,
+        valid_from: $timestamp,
         valid_to: null
     })
     CREATE (s)-[:HAS_MESSAGE {
-        created_at: datetime(),
-        valid_from: datetime(),
+        created_at: $timestamp,
+        valid_from: $timestamp,
         valid_to: null
     }]->(m)
     RETURN m
@@ -266,7 +268,8 @@ def create_message_node(
             'session_id': session_id,
             'message_id': message_id,
             'role': role,
-            'content': content
+            'content': content,
+            'timestamp': timestamp
         }
     )
     
@@ -275,8 +278,8 @@ def create_message_node(
         query = """
         MATCH (prev:Message {id: $prev_id}), (curr:Message {id: $curr_id})
         CREATE (prev)-[:NEXT {
-            created_at: datetime(),
-            valid_from: datetime(),
+            created_at: $timestamp,
+            valid_from: $timestamp,
             valid_to: null
         }]->(curr)
         RETURN prev, curr
@@ -286,7 +289,8 @@ def create_message_node(
             query,
             {
                 'prev_id': prev_message_id,
-                'curr_id': message_id
+                'curr_id': message_id,
+                'timestamp': timestamp
             }
         )
 
@@ -318,6 +322,7 @@ def create_entity_nodes_and_links(
         
         # Створити або оновити Entity
         entity_id = str(uuid.uuid4())
+        timestamp = get_current_timestamp()
         
         if embedding:
             # Зберігаємо embedding як JSON рядок (FalkorDB може не підтримувати vecf32 напряму)
@@ -329,8 +334,8 @@ def create_entity_nodes_and_links(
                 e.id = $entity_id,
                 e.type = $entity_type,
                 e.embedding = $embedding,
-                e.created_at = datetime(),
-                e.valid_from = datetime(),
+                e.created_at = $timestamp,
+                e.valid_from = $timestamp,
                 e.valid_to = null
             ON MATCH SET
                 e.valid_to = null
@@ -338,8 +343,8 @@ def create_entity_nodes_and_links(
             MATCH (m:Message {id: $message_id})
             CREATE (m)-[:MENTIONS {
                 weight: 1.0,
-                created_at: datetime(),
-                valid_from: datetime(),
+                created_at: $timestamp,
+                valid_from: $timestamp,
                 valid_to: null
             }]->(e)
             RETURN e, m
@@ -352,7 +357,8 @@ def create_entity_nodes_and_links(
                     'entity_id': entity_id,
                     'entity_type': entity_type,
                     'embedding': embedding_json,
-                    'message_id': message_id
+                    'message_id': message_id,
+                    'timestamp': timestamp
                 }
             )
         else:
@@ -362,8 +368,8 @@ def create_entity_nodes_and_links(
             ON CREATE SET 
                 e.id = $entity_id,
                 e.type = $entity_type,
-                e.created_at = datetime(),
-                e.valid_from = datetime(),
+                e.created_at = $timestamp,
+                e.valid_from = $timestamp,
                 e.valid_to = null
             ON MATCH SET
                 e.valid_to = null
@@ -371,8 +377,8 @@ def create_entity_nodes_and_links(
             MATCH (m:Message {id: $message_id})
             CREATE (m)-[:MENTIONS {
                 weight: 1.0,
-                created_at: datetime(),
-                valid_from: datetime(),
+                created_at: $timestamp,
+                valid_from: $timestamp,
                 valid_to: null
             }]->(e)
             RETURN e, m
@@ -384,7 +390,8 @@ def create_entity_nodes_and_links(
                     'entity_name': entity_name,
                     'entity_id': entity_id,
                     'entity_type': entity_type,
-                    'message_id': message_id
+                    'message_id': message_id,
+                    'timestamp': timestamp
                 }
             )
 
@@ -411,7 +418,7 @@ def ensure_vector_index(graph) -> None:
 
 async def ingest_session_file(
     file_path: str,
-    graph_name: str = "cursor_graph",
+    graph_name: str = os.getenv("FALKORDB_GRAPH_NAME", "agent_memory"),
     falkordb_host: str = "localhost",
     falkordb_port: int = 6379,
     qpe_url: str = "http://localhost:8001"

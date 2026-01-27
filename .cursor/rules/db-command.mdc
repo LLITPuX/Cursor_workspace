@@ -8,11 +8,12 @@ globs: **/*.py, **/*.md
 Коли користувач використовує команду `/db`:
 
 1. **Якщо наступний аргумент - шлях до файлу:**
-   - Виконай: `python scripts/db_cli.py <шлях_до_файлу>`
+   - Виконай: `docker exec qpe-service python /app/scripts/db_cli.py /app/saved_sessions/<ім'я_файлу>`
+   - Якщо користувач вказав відносний шлях (наприклад `saved_sessions/session_2026-01-16_diagnosis.md`), заміни його на `/app/saved_sessions/session_2026-01-16_diagnosis.md`
    - Це запустить інгестію сесії в граф
 
 2. **Якщо наступний аргумент - текстовий запит:**
-   - Виконай: `python scripts/db_cli.py "<запит>"`
+   - Виконай: `docker exec qpe-service python /app/scripts/db_cli.py "<запит>"`
    - Це виконає пошук в графі знань
 
 Не намагайся писати Cypher вручну - використовуй скрипт db_cli.py.
@@ -21,17 +22,19 @@ globs: **/*.py, **/*.md
 
 ```bash
 # Інгестія файлу сесії
-python scripts/db_cli.py saved_sessions/session_2026-01-20_falkordb_planning.md
+docker exec qpe-service python /app/scripts/db_cli.py /app/saved_sessions/session_2026-01-20_falkordb_planning.md
 
 # Пошук в графі
-python scripts/db_cli.py "Яка була стратегія міграції?"
+docker exec qpe-service python /app/scripts/db_cli.py "Яка була стратегія міграції?"
 ```
 
 ## Важливо
 
 - Скрипт автоматично розпізнає, чи це файл чи запит
-- Для інгестії потрібен запущений QPE Service (http://localhost:8001)
+- Для інгестії потрібен запущений QPE Service контейнер
 - Для пошуку також потрібен QPE Service для обробки запиту
+- Скрипти та файли сесій монтуються в контейнер через volumes
+- Команда виконується всередині контейнера qpe-service через docker exec
 
 ## Формат файлів сесій
 

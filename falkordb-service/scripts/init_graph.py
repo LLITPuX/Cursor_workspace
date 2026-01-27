@@ -6,6 +6,7 @@
 import os
 import sys
 from typing import Optional
+from datetime import datetime
 
 try:
     from falkordb import FalkorDB
@@ -32,11 +33,13 @@ def create_base_structure(
         # Створення базових типів класифікації
         print("\n📋 Створення базових типів...")
         
+        timestamp = datetime.now().isoformat()
+        
         # Sentiment типи
         sentiment_types = ["neutral", "positive_feedback", "negative_feedback", "frustrated"]
         for sentiment in sentiment_types:
-            query = f"MERGE (s:Sentiment {{name: '{sentiment}'}}) SET s.created_at = datetime() RETURN s"
-            graph.query(query)
+            query = "MERGE (s:Sentiment {name: $name}) SET s.created_at = $timestamp RETURN s"
+            graph.query(query, {'name': sentiment, 'timestamp': timestamp})
         print(f"✅ Створено {len(sentiment_types)} типів Sentiment")
         
         # Intent типи
@@ -45,22 +48,22 @@ def create_base_structure(
             "project_discussion", "error_resolution", "clarification_needed"
         ]
         for intent in intent_types:
-            query = f"MERGE (i:Intent {{name: '{intent}'}}) SET i.created_at = datetime() RETURN i"
-            graph.query(query)
+            query = "MERGE (i:Intent {name: $name}) SET i.created_at = $timestamp RETURN i"
+            graph.query(query, {'name': intent, 'timestamp': timestamp})
         print(f"✅ Створено {len(intent_types)} типів Intent")
         
         # Complexity типи
         complexity_types = ["simple_question", "structured_prompt", "architectural", "requires_clarification"]
         for complexity in complexity_types:
-            query = f"MERGE (c:Complexity {{name: '{complexity}'}}) SET c.created_at = datetime() RETURN c"
-            graph.query(query)
+            query = "MERGE (c:Complexity {name: $name}) SET c.created_at = $timestamp RETURN c"
+            graph.query(query, {'name': complexity, 'timestamp': timestamp})
         print(f"✅ Створено {len(complexity_types)} типів Complexity")
         
         # ResponseType типи
         response_types = ["explanation", "code_proposal", "analysis", "question"]
         for rtype in response_types:
-            query = f"MERGE (r:ResponseType {{name: '{rtype}'}}) SET r.created_at = datetime() RETURN r"
-            graph.query(query)
+            query = "MERGE (r:ResponseType {name: $name}) SET r.created_at = $timestamp RETURN r"
+            graph.query(query, {'name': rtype, 'timestamp': timestamp})
         print(f"✅ Створено {len(response_types)} типів ResponseType")
         
         # EntityType типи
@@ -75,8 +78,8 @@ def create_base_structure(
             "Tool", "CodeBlock", "Recommendation", "Action", "Analysis", "Question"
         ]
         for etype in entity_types:
-            query = f"MERGE (e:EntityType {{name: '{etype}'}}) SET e.created_at = datetime() RETURN e"
-            graph.query(query)
+            query = "MERGE (e:EntityType {name: $name}) SET e.created_at = $timestamp RETURN e"
+            graph.query(query, {'name': etype, 'timestamp': timestamp})
         print(f"✅ Створено {len(entity_types)} типів EntityType")
         
         # Перевірка створеної структури

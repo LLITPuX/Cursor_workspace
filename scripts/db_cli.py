@@ -9,6 +9,7 @@
 import os
 import sys
 import argparse
+import asyncio
 from pathlib import Path
 
 # Додаємо scripts до шляху для імпорту ingest_session
@@ -40,8 +41,8 @@ def main():
     
     parser.add_argument(
         "--graph-name",
-        default="cursor_graph",
-        help="Назва графу в FalkorDB (за замовчуванням: cursor_graph)"
+        default=os.getenv("FALKORDB_GRAPH_NAME", "agent_memory"),
+        help="Назва графу в FalkorDB (за замовчуванням: agent_memory)"
     )
     
     parser.add_argument(
@@ -72,13 +73,13 @@ def main():
         print(f"📂 Виявлено файл: {args.input}")
         print("🚀 Запуск процесу інгестії...")
         try:
-            ingest_session_file(
+            asyncio.run(ingest_session_file(
                 file_path=str(input_path),
                 graph_name=args.graph_name,
                 falkordb_host=args.falkordb_host,
                 falkordb_port=args.falkordb_port,
                 qpe_url=args.qpe_url
-            )
+            ))
             print("✅ Інгестія завершена успішно!")
             return 0
         except Exception as e:

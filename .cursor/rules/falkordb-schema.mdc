@@ -15,16 +15,16 @@ globs: **/*.py, **/*.md
 - `topic`: string
 - `file_path`: string
 - `date`: string
-- `created_at`: timestamp (datetime())
-- `valid_from`: timestamp (datetime())
+- `created_at`: timestamp (ISO формат рядка, передається як параметр $timestamp)
+- `valid_from`: timestamp (ISO формат рядка, передається як параметр $timestamp)
 - `valid_to`: timestamp | null (null = активний)
 
 ### Message
 - `id`: string (UUID)
 - `role`: 'user' | 'assistant'
 - `content`: string (повний текст)
-- `created_at`: timestamp (datetime())
-- `valid_from`: timestamp (datetime())
+- `created_at`: timestamp (ISO формат рядка, передається як параметр $timestamp)
+- `valid_from`: timestamp (ISO формат рядка, передається як параметр $timestamp)
 - `valid_to`: timestamp | null (null = активний)
 
 ### Entity
@@ -32,36 +32,38 @@ globs: **/*.py, **/*.md
 - `name`: string (унікальна назва)
 - `type`: string (тип сутності)
 - `embedding`: JSON string (вектор ТІЛЬКИ для сутностей, зберігається як JSON)
-- `created_at`: timestamp (datetime())
-- `valid_from`: timestamp (datetime())
+- `created_at`: timestamp (ISO формат рядка, передається як параметр $timestamp)
+- `valid_from`: timestamp (ISO формат рядка, передається як параметр $timestamp)
 - `valid_to`: timestamp | null (null = активний)
 
 ## Зв'язки (Relationships)
 
 ### [:HAS_MESSAGE]
 Зв'язує Session з Message.
-- `created_at`: timestamp (datetime())
-- `valid_from`: timestamp (datetime())
+- `created_at`: timestamp (ISO формат рядка, передається як параметр $timestamp)
+- `valid_from`: timestamp (ISO формат рядка, передається як параметр $timestamp)
 - `valid_to`: timestamp | null (null = активний)
 
 ### [:NEXT]
 Зв'язує Message в хронологічному порядку (Linked List).
-- `created_at`: timestamp (datetime())
-- `valid_from`: timestamp (datetime())
+- `created_at`: timestamp (ISO формат рядка, передається як параметр $timestamp)
+- `valid_from`: timestamp (ISO формат рядка, передається як параметр $timestamp)
 - `valid_to`: timestamp | null (null = активний)
 
 ### [:MENTIONS]
 Зв'язує Message з Entity (з вагою).
 - `weight`: float (починається з 1.0)
-- `created_at`: timestamp (datetime())
-- `valid_from`: timestamp (datetime())
+- `created_at`: timestamp (ISO формат рядка, передається як параметр $timestamp)
+- `valid_from`: timestamp (ISO формат рядка, передається як параметр $timestamp)
 - `valid_to`: timestamp | null (null = активний)
 
 ## Принцип Append-Only
 
 При зміні даних:
-1. Закрити старий запис: `SET valid_to = datetime()`
-2. Створити новий запис: `valid_from = datetime(), valid_to = null`
+1. Закрити старий запис: `SET valid_to = $timestamp` (де $timestamp - поточний ISO timestamp)
+2. Створити новий запис: `valid_from = $timestamp, valid_to = null`
+
+**Важливо:** FalkorDB не підтримує функцію `datetime()` в Cypher. Timestamp передається як параметр у форматі ISO (наприклад, `2026-01-27T17:30:00.123456`).
 
 Ніколи не видаляти дані, тільки архівувати.
 
