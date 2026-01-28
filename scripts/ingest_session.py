@@ -140,7 +140,7 @@ async def process_message_with_qpe(
     Returns:
         Результат обробки з classifications, entities, embeddings
     """
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         if message['role'] == 'user':
             # Обробка запиту користувача
             response = await client.post(
@@ -460,8 +460,7 @@ async def ingest_session_file(
         print(f"  📨 Обробка повідомлення {i}/{len(parsed['messages'])} ({message['role']})...")
         
         # Обробка через QPE
-        import asyncio
-        qpe_result = asyncio.run(process_message_with_qpe(message, qpe_url))
+        qpe_result = await process_message_with_qpe(message, qpe_url)
         
         # Створення Message
         message_id = str(uuid.uuid4())
