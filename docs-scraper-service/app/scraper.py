@@ -421,20 +421,44 @@ class DocsScraper:
                     if not content:
                         return content
                     
-                    # Remove lines with "Export to Sheets"
+                    # Remove lines with "Export to Sheets" (case-insensitive)
                     lines = content.split('\n')
-                    cleaned_lines = [line for line in lines if 'Export to Sheets' not in line]
+                    cleaned_lines = [line for line in lines if 'export to sheets' not in line.lower()]
                     content = '\n'.join(cleaned_lines)
                     
                     # Remove tables with tabulation (lines with tabs between words)
                     # Pattern: text\ttext (tab-separated columns)
+                    # Also remove consecutive lines that look like table rows
                     lines = content.split('\n')
                     cleaned_lines = []
-                    for line in lines:
+                    in_table = False
+                    for i, line in enumerate(lines):
                         # Check if line contains tabulation between words (likely a table row)
-                        if '\t' in line and len(line.split('\t')) >= 2:
-                            # Skip table rows with tabulation
-                            continue
+                        # Also check if line looks like a table header/separator
+                        is_table_row = False
+                        if '\t' in line:
+                            parts = line.split('\t')
+                            # If line has 2+ tab-separated parts with text, it's a table row
+                            if len(parts) >= 2 and any(p.strip() for p in parts):
+                                is_table_row = True
+                        
+                        if is_table_row:
+                            in_table = True
+                            continue  # Skip this table row
+                        
+                        # If we were in a table and hit a non-table line, check if it's just spacing
+                        if in_table:
+                            # If next line is also a table row, continue skipping
+                            if i + 1 < len(lines):
+                                next_line = lines[i + 1]
+                                if '\t' in next_line and len(next_line.split('\t')) >= 2:
+                                    continue  # Still in table
+                            # Otherwise, we're out of the table
+                            in_table = False
+                            # Skip empty line after table if present
+                            if not line.strip():
+                                continue
+                        
                         cleaned_lines.append(line)
                     content = '\n'.join(cleaned_lines)
                     
@@ -455,18 +479,38 @@ class DocsScraper:
                         text_with_placeholders = re.sub(code_block_pattern, replace_with_placeholder, text)
                         
                         # Escape HTML tags: <tag> -> &lt;tag&gt;
-                        # Match opening tags: <tag or <tag attr="value">
-                        escaped_text = re.sub(
-                            r'(?<!&lt;)<([a-zA-Z][a-zA-Z0-9]*)(?:\s+[^>]*)?>(?!&gt;)',
-                            r'&lt;\1&gt;',
-                            text_with_placeholders
-                        )
-                        # Escape closing tags: </tag> -> &lt;/tag&gt;
-                        escaped_text = re.sub(
-                            r'(?<!&lt;)</([a-zA-Z][a-zA-Z0-9]*)>(?!&gt;)',
-                            r'&lt;/\1&gt;',
-                            escaped_text
-                        )
+                        # Process text between placeholders to avoid breaking code blocks
+                        escaped_text = text_with_placeholders
+                        
+                        # Find all placeholder positions
+                        placeholder_positions = []
+                        for match in re.finditer(r'__CODE_BLOCK_\d+__', escaped_text):
+                            placeholder_positions.append((match.start(), match.end()))
+                        
+                        # Process text in segments, avoiding placeholders
+                        result_parts = []
+                        last_end = 0
+                        
+                        for start, end in placeholder_positions:
+                            # Process text before placeholder
+                            segment = escaped_text[last_end:start]
+                            # Escape HTML tags in this segment
+                            segment = re.sub(r'<([a-zA-Z][a-zA-Z0-9]*)(?:\s+[^>]*)?/?>', r'&lt;\1&gt;', segment)
+                            segment = re.sub(r'</([a-zA-Z][a-zA-Z0-9]*)>', r'&lt;/\1&gt;', segment)
+                            result_parts.append(segment)
+                            
+                            # Add placeholder unchanged
+                            result_parts.append(escaped_text[start:end])
+                            last_end = end
+                        
+                        # Process remaining text after last placeholder
+                        if last_end < len(escaped_text):
+                            segment = escaped_text[last_end:]
+                            segment = re.sub(r'<([a-zA-Z][a-zA-Z0-9]*)(?:\s+[^>]*)?/?>', r'&lt;\1&gt;', segment)
+                            segment = re.sub(r'</([a-zA-Z][a-zA-Z0-9]*)>', r'&lt;/\1&gt;', segment)
+                            result_parts.append(segment)
+                        
+                        escaped_text = ''.join(result_parts)
                         
                         # Restore code blocks
                         for idx, code_block in enumerate(code_blocks):
@@ -574,7 +618,7 @@ class DocsScraper:
                     timestamp = now.strftime('%Y-%m-%d_%H-%M-%S')
                     # Sanitize only the title part, preserve timestamp format
                     safe_title = sanitize_filename(english_title)
-                    filename = f"session_{timestamp}_{safe_title}.md"
+                    filename = f"gemini_session_{timestamp}_{safe_title}.md"
                 
                 if not filename.endswith('.md'):
                     filename += '.md'
