@@ -27,6 +27,7 @@ services:
     volumes:
       # Bind mount - данные сохраняются напрямую на локальный диск
       - ./docs:/app/docs
+      - ../saved_sessions:/app/saved_sessions
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/api/v1/scraper/health', timeout=5)"]

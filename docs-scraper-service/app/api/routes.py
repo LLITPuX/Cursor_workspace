@@ -1,7 +1,7 @@
 """API routes for docs scraper service."""
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from app.models.request import ScrapeRequest, ProjectListResponse, ProjectFilesResponse
+from app.models.request import ScrapeRequest, ProjectListResponse, ProjectFilesResponse, GeminiScrapeRequest
 from app.models.response import ScrapeResponse
 from app.scraper import DocsScraper
 from app.storage import Storage
@@ -99,3 +99,34 @@ async def list_project_files(project_name: str):
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "service": "docs-scraper"}
+
+
+@router.post("/gemini")
+async def scrape_gemini(request: GeminiScrapeRequest):
+    """
+    Scrape a Gemini session from a public URL.
+    """
+    try:
+        # Use simple default scraper init, we only need the method
+        scraper = DocsScraper(base_url=request.url, project_name="gemini")
+        
+        # Define output path
+        # In docker, /app/saved_sessions is mapped to ../saved_sessions
+        output_path = "/app/saved_sessions/Gemini_chat"
+        
+        result = await scraper.scrape_gemini_session(
+            url=request.url,
+            output_path=output_path,
+            filename=request.filename
+        )
+        
+        return {
+            "success": True,
+            "message": "Session saved successfully",
+            "file_path": result['file_path'],
+            "items_count": result['message_count']
+        }
+        
+    except Exception as e:
+        logger.error(f"Gemini scraping failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

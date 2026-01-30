@@ -22,3 +22,9 @@ class ProjectFilesResponse(BaseModel):
     """Response model for project files."""
     project_name: str
     files: list[str]
+
+
+class GeminiScrapeRequest(BaseModel):
+    """Request model for scraping Gemini sessions."""
+    url: str
+    filename: Optional[str] = None
