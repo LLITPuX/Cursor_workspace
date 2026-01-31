@@ -38,3 +38,8 @@ projects/
 
 # Saved sessions
 saved_sessions/
+
+# --- Gemini Observer ---
+gemini-observer/credentials/
+gemini-observer/*.log
+reference_repos/
