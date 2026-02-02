@@ -21,12 +21,16 @@ class RalphLoop:
         self.running = False
         
         # Initialize Providers
-        self.main_provider: LLMProvider = client if isinstance(client, GeminiProvider) else GeminiProvider()
+        # FORCE LOCAL CORTEX Mode
+        # We disable Gemini for now as per "Gemini CLI frozen" directive.
         
-        # For the backup provider, we might want to config the host.
-        # Assuming 'ollama' is the hostname in the docker network.
-        # If running mostly locally outside docker, this might need 'localhost'.
-        self.backup_provider: LLMProvider = OllamaProvider(host="http://falkordb-ollama:11434", model="gemma2:2b")
+        # Configure Local Cortex (Gemma 3 4B)
+        # Benchmark Winner: gemma3:4b (12 tok/s vs 7 tok/s for Mistral)
+        local_provider = OllamaProvider(host="http://falkordb-ollama:11434", model="gemma3:4b")
+        
+        # Set Gemma 3 as MAIN and BACKUP provider
+        self.main_provider: LLMProvider = local_provider
+        self.backup_provider: LLMProvider = local_provider
 
     async def run_worker(self):
         """

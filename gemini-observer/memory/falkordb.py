@@ -5,9 +5,9 @@ from .base import MemoryProvider
 import json
 
 class FalkorDBProvider(MemoryProvider):
-    def __init__(self, redis_client: redis.Redis):
+    def __init__(self, redis_client: redis.Redis, graph_name: str = "agent_memory"):
         self.redis_client = redis_client
-        self.graph_name = "GeminiMemory"
+        self.graph_name = graph_name
 
     async def _query(self, query: str, params: dict = None):
         # We use raw redis graph.query command since we don't have the full falkordb-py client in this env yet

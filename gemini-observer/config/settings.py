@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     # Redis / FalkorDB Settings
     FALKORDB_HOST: str = "localhost"
     FALKORDB_PORT: int = 6379
+    FALKORDB_GRAPH_AGENT: str = "agent_memory"
+    FALKORDB_GRAPH_GROUP: str = "group_chat_memory"
     REDIS_QUEUE_INCOMING: str = "chat:incoming"
     REDIS_QUEUE_OUTGOING: str = "chat:outgoing"
     
