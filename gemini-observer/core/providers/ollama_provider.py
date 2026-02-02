@@ -3,6 +3,8 @@ import logging
 from core.llm_interface import LLMProvider
 from typing import List, Dict, Any
 
+from core.prompts import SYSTEM_PROMPT
+
 class OllamaProvider(LLMProvider):
     def __init__(self, host: str = "http://falkordb-ollama:11434", model: str = "gemma2:2b"):
         # Initialize async client
@@ -20,6 +22,10 @@ class OllamaProvider(LLMProvider):
         # Ollama: [{'role': 'user', 'content': 'text'}, ...]
         
         ollama_messages = []
+        
+        # Inject System Prompt
+        ollama_messages.append({"role": "system", "content": SYSTEM_PROMPT})
+        
         for msg in history:
             role = msg.get("role")
             # Map roles: 'model' -> 'assistant'

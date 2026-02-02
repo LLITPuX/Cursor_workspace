@@ -54,6 +54,7 @@
 **Статус:** ✅ Завершено (02.02.2026)
 - [x] Local Model Benchmark (The Arena): Вибір оптимальної локальної моделі (`gemma3:4b` winner).
 - [x] Graph Segregation: Розділення пам'яті на `agent_memory` та `group_chat_memory`.
+- [x] System Prompt: Реалізовано `core/prompts.py` для інструкцій Local Cortex.
 - [x] Documentation Sync: Оновлення ARCHITECTURE.md на основі бенчмарків.
 
 ### Етап 3: Skills & Memory Integration

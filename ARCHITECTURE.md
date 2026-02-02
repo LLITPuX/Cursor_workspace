@@ -68,8 +68,9 @@ sequenceDiagram
 *   **Логіка:**
     1.  **Input:** Блокуюче читання (`blpop`) з Redis.
     2.  **LLM Routing:** Вибір провайдера через `LLMProvider` (Gemini vs Ollama).
-    3.  **Circuit Breaker:** Якщо Gemini повертає помилку (429, 500, Timeout), автоматично перемикається на `backup_provider` (Ollama).
-    4.  **Output:** Запис відповіді у чергу `agent_responses`.
+    3.  **System Prompt:** Інструкції для LLM завантажуються з `core/prompts.py` і додаються до контексту.
+    4.  **Circuit Breaker:** Якщо Gemini повертає помилку (429, 500, Timeout), автоматично перемикається на `backup_provider` (Ollama).
+    5.  **Output:** Запис відповіді у чергу `agent_responses`.
 
 ### 3. Sender Service (`gemini-observer/transport/sender.py`)
 *   **Функція:** "Руки" агента для відправки повідомлень.
