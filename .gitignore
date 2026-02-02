@@ -42,4 +42,8 @@ saved_sessions/
 # --- Gemini Observer ---
 gemini-observer/credentials/
 gemini-observer/*.log
+gemini-observer/reports/
 reference_repos/
+
+# Temporary Tasks
+tasks/
