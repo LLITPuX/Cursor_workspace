@@ -4,6 +4,7 @@ services:
   bot:
     build: .
     volumes:
+      - .:/app
       - ./credentials:/app/credentials
       - ./.env:/app/.env
     ports:
@@ -13,3 +14,11 @@ services:
       - PYTHONUNBUFFERED=1
     tty: true # Allows interaction if needed
     stdin_open: true
+    networks:
+      - default
+      - falkordb_net
+
+networks:
+  falkordb_net:
+    external: true
+    name: falkordb-service_falkordb-network

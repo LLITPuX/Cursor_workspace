@@ -6,8 +6,14 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str
     GEMINI_CLIENT_SECRET_PATH: str = "credentials/client_secret.json"
     GEMINI_TOKEN_PATH: str = "credentials/token.json"
-    ALLOWED_USER_IDS: List[int]
-
+    ALLOWED_USER_IDS: str = "[]" # JSON formatted list of strings
+    
+    # Redis / FalkorDB Settings
+    FALKORDB_HOST: str = "localhost"
+    FALKORDB_PORT: int = 6379
+    REDIS_QUEUE_INCOMING: str = "chat:incoming"
+    REDIS_QUEUE_OUTGOING: str = "chat:outgoing"
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

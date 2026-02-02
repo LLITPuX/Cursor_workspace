@@ -1,46 +1,92 @@
 import asyncio
 import logging
-import os
+import redis.asyncio as redis
 from config.settings import settings
-from memory.in_memory import InMemoryProvider
-from core.gemini_client import GeminiClient
+from memory.falkordb import FalkorDBProvider
+from transport.queue import RedisQueue
+from transport.telegram_bot import TelegramBot
+from transport.sender import TelegramSender
 from core.loop import RalphLoop
-from transport.bot import TelegramBot
+from core.providers.gemini_provider import GeminiProvider
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 async def main():
-    # Logging setup
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    logging.info("🚀 SYSTEM IGNITION: Initializing Synapse Phase...")
 
-    # Check for credentials before starting (Ignition Check)
-    if not os.path.exists(settings.GEMINI_TOKEN_PATH):
-        logger.error(f"CRITICAL: Token file not found at {settings.GEMINI_TOKEN_PATH}")
-        logger.error("Please run 'python scripts/auth_google.py' locally to generate credentials.")
-        return
-
-    logger.info("Initializing components...")
-
-    # 1. Memory
-    memory = InMemoryProvider()
-
-    # 2. Client
+    # 1. Shared Async Connection Pool
+    # Note: We use the hostname 'falkordb' for Docker networking.
+    redis_url = f"redis://{settings.FALKORDB_HOST}:{settings.FALKORDB_PORT}"
+    logging.info(f"Connecting to Redis/FalkorDB at {redis_url}...")
+    
+    redis_client = redis.from_url(redis_url, encoding="utf-8", decode_responses=False) # decode_responses=False because FalkorDB might return bytes or we handle it in provider
+    
+    # 2. Init Shared Components
+    redis_queue = RedisQueue(
+        redis_client=redis_client,
+        incoming_key=settings.REDIS_QUEUE_INCOMING,
+        outgoing_key=settings.REDIS_QUEUE_OUTGOING
+    )
+    
+    memory_provider = FalkorDBProvider(redis_client=redis_client)
+    # DEBUG: Clear history to remove any potentially corrupted nodes from previous failed runs
+    logging.info("🧹 DEBUG: Clearing Memory Graph for fresh start...")
     try:
-        client = GeminiClient()
+        await memory_provider.clear_history()
     except Exception as e:
-        logger.error(f"Failed to initialize Gemini Client: {e}")
-        return
+        logging.warning(f"Failed to clear history (might be empty): {e}")
 
-    # 3. Core Loop
-    loop = RalphLoop(memory=memory, client=client)
+    # 3. Initialize Logic Core
+    gemini_provider = None
+    try:
+        gemini_provider = GeminiProvider()
+        logging.info("Gemini Provider Initialized.")
+    except Exception as e:
+        logging.critical(f"Failed to initialize Gemini Provider: {e}")
+        # We continue, but the brain might fail.
+    
+    ralph_loop = RalphLoop(
+        memory=memory_provider,
+        client=gemini_provider,
+        queue=redis_queue
+    )
 
-    # 4. Transport
-    bot = TelegramBot(loop=loop)
+    # 4. Initialize Transport
+    # Note: TelegramBot and TelegramSender now just accept the prepared queue
+    telegram_bot = TelegramBot(settings=settings, redis_queue=redis_queue)
+    telegram_sender = TelegramSender(settings=settings, redis_queue=redis_queue)
 
-    # 5. Start
-    await bot.start()
+    # 5. Launch Parallel Tasks
+    logging.info("Launching parallel services...")
+    
+    tasks = []
+    
+    # Task A: Listener (Polling)
+    # Note: TelegramBot.start() is the polling loop
+    tasks.append(asyncio.create_task(telegram_bot.start()))
+    
+    # Task B: Brain (Loop)
+    tasks.append(asyncio.create_task(ralph_loop.run_worker()))
+    
+    # Task C: Sender (Worker)
+    tasks.append(asyncio.create_task(telegram_sender.start()))
+
+    logging.info("🚀 SYSTEM ONLINE. All systems go.")
+    
+    try:
+        await asyncio.gather(*tasks)
+    except KeyboardInterrupt:
+        logging.info("Shutting down...")
+    finally:
+        await telegram_bot.stop()
+        await telegram_sender.stop()
+        await ralph_loop.stop()
+        await redis_client.close()
+        logging.info("System halted.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Bot stopped.")
+        pass
