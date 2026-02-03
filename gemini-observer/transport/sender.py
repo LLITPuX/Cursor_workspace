@@ -1,13 +1,16 @@
 import logging
 import asyncio
+from datetime import datetime
 from aiogram import Bot
 from config.settings import Settings
 from transport.queue import RedisQueue
+from memory.falkordb import FalkorDBProvider
 
 class TelegramSender:
-    def __init__(self, settings: Settings, redis_queue: RedisQueue):
+    def __init__(self, settings: Settings, redis_queue: RedisQueue, memory: FalkorDBProvider = None):
         self.settings = settings
         self.queue = redis_queue
+        self.memory = memory  # First Stream: Graph Memory
         
         # FIX: Force IPv4 for Sender as well
         import socket
@@ -38,8 +41,24 @@ class TelegramSender:
                     text = message.get("text")
                     
                     if chat_id and text:
-                        await self.bot.send_message(chat_id=chat_id, text=text)
-                        logging.info(f"Sent message to {chat_id}")
+                        # Send message to Telegram
+                        sent_msg = await self.bot.send_message(chat_id=chat_id, text=text)
+                        logging.info(f"Sent message to {chat_id} (msg_id: {sent_msg.message_id})")
+                        
+                        # ════════════════════════════════════════════════════════════════
+                        # FIRST STREAM (The Scribe): Save agent response to Graph
+                        # ════════════════════════════════════════════════════════════════
+                        if self.memory:
+                            try:
+                                await self.memory.save_agent_response(
+                                    agent_telegram_id=self.settings.BOT_TELEGRAM_ID,
+                                    chat_id=chat_id,
+                                    message_id=sent_msg.message_id,
+                                    text=text,
+                                    timestamp=datetime.now()
+                                )
+                            except Exception as e:
+                                logging.error(f"First Stream (Agent) Error: {e}")
                     else:
                         logging.error(f"Invalid outgoing message format: {message}")
                         

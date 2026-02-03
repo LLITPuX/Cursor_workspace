@@ -4,6 +4,7 @@ from memory.base import MemoryProvider
 from core.llm_interface import LLMProvider
 from core.providers.gemini_provider import GeminiProvider
 from core.providers.ollama_provider import OllamaProvider
+from core.prompts import build_system_prompt, history_to_messages
 from transport.queue import RedisQueue
 
 class RalphLoop:
@@ -56,37 +57,40 @@ class RalphLoop:
                 if not text:
                     continue
 
-                # Step 1: Observe (Store input)
-                await self.memory.add_message("user", text)
-
-                # Step 2: Orient (Retrieve context)
-                history = await self.memory.get_history()
-
+                # ════════════════════════════════════════════════════════════════
+                # BUILD CONTEXT: System Prompt + Chat History as Messages
+                # ════════════════════════════════════════════════════════════════
+                
+                # Get system prompt (short, no history in it)
+                system_prompt = build_system_prompt()
+                
+                # Fetch recent chat history from graph and convert to message format
+                chat_messages = await self.memory.get_chat_context(chat_id, limit=10)
+                history = history_to_messages(chat_messages)
+                
+                logging.info(f"Context: {len(history)} messages from history")
+                
                 # Step 3: Decide & Act (Generate response)
                 response_text = ""
                 try:
-                    # Attempt 1: Main Provider (Gemini)
-                    response_text = await self.main_provider.generate_response(history)
+                    response_text = await self.main_provider.generate_response(
+                        history=history,
+                        system_prompt=system_prompt
+                    )
                 except Exception as e:
-                    logging.error(f"⚠️ Gemini Fail: {e}. Switching to Local Cortex.")
-                    
-                    # Circuit Breaker Logic
-                    # We could check for specific errors (429, 500), but for now fallback on ANY error
-                    # is a safer "keep alive" strategy for the Ignition phase.
+                    logging.error(f"⚠️ Main Provider Fail: {e}. Switching to backup...")
                     
                     try:
-                        # Attempt 2: Backup Provider (Ollama)
-                        # We might want to append a system instruction to history to keep it short?
-                        # For now, just pass history.
-                        response_text = await self.backup_provider.generate_response(history)
+                        response_text = await self.backup_provider.generate_response(
+                            history=history,
+                            system_prompt=system_prompt
+                        )
                     except Exception as e_local:
                         error_msg = f"System Critical Failure: All cognitive cores offline. ({e_local})"
                         logging.error(error_msg)
                         response_text = error_msg
 
-                # Step 4: Store (Save response)
-                # Note: We save whatever we generated, even if it's an error message
-                await self.memory.add_message("model", response_text)
+                # NOTE: Agent responses are saved in TelegramSender after successful send (First Stream)
 
                 # Step 5: Respond (Enqueue outgoing)
                 outgoing_event = {

@@ -30,12 +30,7 @@ async def main():
     )
     
     memory_provider = FalkorDBProvider(redis_client=redis_client)
-    # DEBUG: Clear history to remove any potentially corrupted nodes from previous failed runs
-    logging.info("🧹 DEBUG: Clearing Memory Graph for fresh start...")
-    try:
-        await memory_provider.clear_history()
-    except Exception as e:
-        logging.warning(f"Failed to clear history (might be empty): {e}")
+    # NOTE: Genesis Nodes (User, Agent, Chat, Year, Day) are pre-created and must be preserved
 
     # 3. Initialize Logic Core
     gemini_provider = None
@@ -54,8 +49,8 @@ async def main():
 
     # 4. Initialize Transport
     # Note: TelegramBot and TelegramSender now just accept the prepared queue
-    telegram_bot = TelegramBot(settings=settings, redis_queue=redis_queue)
-    telegram_sender = TelegramSender(settings=settings, redis_queue=redis_queue)
+    telegram_bot = TelegramBot(settings=settings, redis_queue=redis_queue, memory=memory_provider)
+    telegram_sender = TelegramSender(settings=settings, redis_queue=redis_queue, memory=memory_provider)
 
     # 5. Launch Parallel Tasks
     logging.info("Launching parallel services...")

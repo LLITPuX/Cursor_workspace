@@ -4,6 +4,7 @@ import os
 
 class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str
+    BOT_TELEGRAM_ID: int = 8521381973  # Bober Sikfan bot ID for graph Agent node
     GEMINI_CLIENT_SECRET_PATH: str = "credentials/client_secret.json"
     GEMINI_TOKEN_PATH: str = "credentials/token.json"
     ALLOWED_USER_IDS: str = "[]" # JSON formatted list of strings

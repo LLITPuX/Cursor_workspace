@@ -6,14 +6,17 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 from config.settings import Settings
 from transport.queue import RedisQueue
+from memory.falkordb import FalkorDBProvider
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
 class TelegramBot:
-    def __init__(self, settings: Settings, redis_queue: RedisQueue):
+    def __init__(self, settings: Settings, redis_queue: RedisQueue, memory: FalkorDBProvider = None):
         self.settings = settings
         self.queue = redis_queue
+        self.memory = memory  # First Stream: Graph Memory
         
         # FIX: Force IPv4 to prevent aiohttp hang in Docker
         import socket
@@ -52,6 +55,27 @@ class TelegramBot:
 
         logging.info(f"Received message from {user_id}: {message.text}")
         
+        # ════════════════════════════════════════════════════════════════
+        if self.memory and message.text:
+            try:
+                # Get author name for abbreviation (e.g. "John Doe" -> "JD")
+                author_name = message.from_user.first_name or "User"
+                if message.from_user.last_name:
+                    author_name += " " + message.from_user.last_name
+                
+                logging.info(f"Saving msg from: '{author_name}'")
+                
+                await self.memory.save_user_message(
+                    user_telegram_id=message.from_user.id,
+                    chat_id=message.chat.id,
+                    message_id=message.message_id,
+                    text=message.text,
+                    timestamp=message.date or datetime.now(),
+                    author_name=author_name
+                )
+            except Exception as e:
+                logging.error(f"First Stream Error: {e}")
+        
         # Prepare event payload
         event = {
             "chat_id": message.chat.id,
@@ -61,7 +85,7 @@ class TelegramBot:
             "message_id": message.message_id
         }
         
-        # Push to Queue
+        # Push to Queue (for Brain processing)
         await self.queue.push_incoming(event)
 
     async def start(self):
