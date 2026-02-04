@@ -13,10 +13,11 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 
 class TelegramBot:
-    def __init__(self, settings: Settings, redis_queue: RedisQueue, memory: FalkorDBProvider = None):
+    def __init__(self, settings: Settings, redis_queue: RedisQueue, memory: FalkorDBProvider = None, cognitive_loop = None):
         self.settings = settings
         self.queue = redis_queue
         self.memory = memory  # First Stream: Graph Memory
+        self.cognitive_loop = cognitive_loop  # Second Stream: Analysis Loop
         
         # FIX: Force IPv4 to prevent aiohttp hang in Docker
         import socket
@@ -56,6 +57,8 @@ class TelegramBot:
         logging.info(f"Received message from {user_id}: {message.text}")
         
         # ════════════════════════════════════════════════════════════════
+        # FIRST STREAM: Save to Graph Memory
+        # ════════════════════════════════════════════════════════════════
         if self.memory and message.text:
             try:
                 # Get author name for abbreviation (e.g. "John Doe" -> "JD")
@@ -87,6 +90,15 @@ class TelegramBot:
         
         # Push to Queue (for Brain processing)
         await self.queue.push_incoming(event)
+        
+        # ════════════════════════════════════════════════════════════════
+        # SECOND STREAM: Enqueue for Cognitive Analysis
+        # ════════════════════════════════════════════════════════════════
+        if self.cognitive_loop and message.text:
+            try:
+                await self.cognitive_loop.enqueue_message(event)
+            except Exception as e:
+                logging.error(f"Second Stream Enqueue Error: {e}")
 
     async def start(self):
         """Start polling"""

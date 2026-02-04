@@ -7,6 +7,7 @@ from transport.queue import RedisQueue
 from transport.telegram_bot import TelegramBot
 from transport.sender import TelegramSender
 from core.loop import RalphLoop
+from core.analysis_loop import CognitiveLoop
 from core.providers.gemini_provider import GeminiProvider
 
 # Configure logging
@@ -20,7 +21,7 @@ async def main():
     redis_url = f"redis://{settings.FALKORDB_HOST}:{settings.FALKORDB_PORT}"
     logging.info(f"Connecting to Redis/FalkorDB at {redis_url}...")
     
-    redis_client = redis.from_url(redis_url, encoding="utf-8", decode_responses=False) # decode_responses=False because FalkorDB might return bytes or we handle it in provider
+    redis_client = redis.from_url(redis_url, encoding="utf-8", decode_responses=False)
     
     # 2. Init Shared Components
     redis_queue = RedisQueue(
@@ -30,44 +31,60 @@ async def main():
     )
     
     memory_provider = FalkorDBProvider(redis_client=redis_client)
-    # NOTE: Genesis Nodes (User, Agent, Chat, Year, Day) are pre-created and must be preserved
+    # NOTE: Genesis Nodes (User, Agent, Chat, Year, Day) are pre-created
 
-    # 3. Initialize Logic Core
+    # 3. Initialize Logic Core (First Stream - Brain)
     gemini_provider = None
     try:
         gemini_provider = GeminiProvider()
         logging.info("Gemini Provider Initialized.")
     except Exception as e:
         logging.critical(f"Failed to initialize Gemini Provider: {e}")
-        # We continue, but the brain might fail.
     
     ralph_loop = RalphLoop(
         memory=memory_provider,
         client=gemini_provider,
         queue=redis_queue
     )
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # 4. Initialize Cognitive Loop (Second Stream - Background Analysis)
+    # ═══════════════════════════════════════════════════════════════════════
+    cognitive_loop = CognitiveLoop(
+        redis_client=redis_client,
+        switchboard=ralph_loop.switchboard,  # Reuse Switchboard from RalphLoop
+        memory_provider=memory_provider
+    )
+    logging.info("CognitiveLoop (Second Stream) initialized")
 
-    # 4. Initialize Transport
-    # Note: TelegramBot and TelegramSender now just accept the prepared queue
-    telegram_bot = TelegramBot(settings=settings, redis_queue=redis_queue, memory=memory_provider)
+    # 5. Initialize Transport
+    telegram_bot = TelegramBot(
+        settings=settings, 
+        redis_queue=redis_queue, 
+        memory=memory_provider,
+        cognitive_loop=cognitive_loop  # Pass for Second Stream enqueue
+    )
     telegram_sender = TelegramSender(settings=settings, redis_queue=redis_queue, memory=memory_provider)
 
-    # 5. Launch Parallel Tasks
+    # 6. Launch Parallel Tasks
     logging.info("Launching parallel services...")
     
     tasks = []
     
     # Task A: Listener (Polling)
-    # Note: TelegramBot.start() is the polling loop
     tasks.append(asyncio.create_task(telegram_bot.start()))
     
-    # Task B: Brain (Loop)
+    # Task B: First Stream - Brain (Chat Responses)
     tasks.append(asyncio.create_task(ralph_loop.run_worker()))
     
     # Task C: Sender (Worker)
     tasks.append(asyncio.create_task(telegram_sender.start()))
+    
+    # Task D: Second Stream - Cognitive Loop (Background Analysis)
+    tasks.append(asyncio.create_task(cognitive_loop.start()))
 
     logging.info("🚀 SYSTEM ONLINE. All systems go.")
+    logging.info("📊 Streams: First (Brain) + Second (Cognitive Loop)")
     
     try:
         await asyncio.gather(*tasks)
@@ -77,6 +94,7 @@ async def main():
         await telegram_bot.stop()
         await telegram_sender.stop()
         await ralph_loop.stop()
+        await cognitive_loop.stop()
         await redis_client.close()
         logging.info("System halted.")
 

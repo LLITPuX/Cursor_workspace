@@ -10,6 +10,8 @@ services:
     ports:
       - "8080:8080" # For OAuth callback
     # Environment variables will be loaded from .env automatically
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
     tty: true # Allows interaction if needed
