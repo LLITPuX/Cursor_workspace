@@ -4,9 +4,96 @@ description: FalkorDB Knowledge Graph Schema
 globs: **/*.py, **/*.md
 ---
 
-# FalkorDB Schema
+# FalkorDB Schema (GeminiMemory)
 
-Ти працюєш з базою даних FalkorDB (Graph Database).
-Використовуй `python scripts/db_cli.py` для взаємодії.
+## Вузли (Nodes)
 
-**Опис схеми графа (вузли, зв'язки, Cypher) буде додано незабаром.** Поки не покладайся на старі згадки типів вузлів та зв'язків у документації.
+### Identity Nodes
+- **(:User)** — Учасник чату
+  - `telegram_id` (int, UNIQUE)
+  - `id` (string, UUID)
+  - `name` (string)
+  - `username` (string, optional)
+
+- **(:Agent)** — AI-бот (джерело виходу)
+  - `telegram_id` (int, UNIQUE)
+  - `id` (string, UUID)
+  - `name` (string)
+
+### Context Nodes
+- **(:Chat)** — Простір подій (груповий/приватний чат)
+  - `chat_id` (int, UNIQUE)
+  - `id` (string, UUID)
+  - `name` (string)
+  - `type` (string: `private`, `group`, `supergroup`)
+
+### Event Nodes
+- **(:Event:Message)** — Атомарна одиниця досвіду
+  - `uid` (string: `{chat_id}:{message_id}`, INDEX)
+  - `message_id` (int)
+  - `text` (string)
+  - `created_at` (float, Unix timestamp)
+
+### Time Nodes
+- **(:Year)** — Рік
+  - `value` (int, UNIQUE, e.g. 2026)
+  - `id` (string, UUID)
+  - `name` (string, e.g. "2026")
+
+- **(:Day)** — День
+  - `date` (string, UNIQUE, e.g. "2026-02-03")
+  - `id` (string, UUID)
+  - `name` (string, номер дня в місяці, e.g. "3")
+
+## Зв'язки (Relationships)
+
+### Авторство
+- `(:User)-[:AUTHORED]->(:Event:Message)` — Юзер написав повідомлення
+- `(:Agent)-[:GENERATED]->(:Event:Message)` — Агент згенерував відповідь
+
+### Локація
+- `(:Event:Message)-[:HAPPENED_IN]->(:Chat)` — Де сталося
+
+### Час
+- `(:Year)-[:MONTH {number: int}]->(:Day)` — Місяць як ребро з номером
+- `(:Event:Message)-[:HAPPENED_AT {time: "HH:MM:SS"}]->(:Day)` — Точний час
+
+### Хронологія (Linked List)
+- `(:Event:Message)-[:NEXT]->(:Event:Message)` — Наступне повідомлення
+- `(:Chat)-[:LAST_EVENT]->(:Event:Message)` — Вказівник на останнє повідомлення в чаті
+
+## Приклад Cypher
+
+```cypher
+// Зберегти нове повідомлення від юзера
+MATCH (u:User {telegram_id: $uid})
+MATCH (c:Chat {chat_id: $cid})
+MATCH (d:Day {date: $day_date})
+CREATE (m:Event:Message {
+    uid: $msg_uid,
+    message_id: $msg_id,
+    text: $text,
+    created_at: $ts
+})
+CREATE (u)-[:AUTHORED]->(m)
+CREATE (m)-[:HAPPENED_IN]->(c)
+CREATE (m)-[:HAPPENED_AT {time: $time_str}]->(d)
+
+// Linked List: оновити LAST_EVENT
+WITH c, m
+OPTIONAL MATCH (c)-[last_rel:LAST_EVENT]->(prev_msg)
+DELETE last_rel
+FOREACH (_ IN CASE WHEN prev_msg IS NOT NULL THEN [1] ELSE [] END |
+    CREATE (prev_msg)-[:NEXT]->(m)
+)
+CREATE (c)-[:LAST_EVENT]->(m)
+RETURN m.uid
+```
+
+## Команди для взаємодії
+
+Використовуй `docker exec falkordb redis-cli` для прямих запитів:
+
+```bash
+docker exec falkordb redis-cli GRAPH.QUERY GeminiMemory "MATCH (n) RETURN n LIMIT 10"
+```
