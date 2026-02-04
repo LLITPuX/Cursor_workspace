@@ -286,6 +286,68 @@ class FalkorDBProvider(MemoryProvider):
             logger.error(f"Failed to get chat context: {e}")
             return []
 
+    async def log_system_event(
+        self,
+        event_type: str,
+        source: str,
+        severity: str,
+        details: str,
+        chat_id: int = None
+    ) -> Optional[str]:
+        """
+        Log system event to graph as (:SystemEvent).
+        
+        Used by Switchboard for FALLBACK events and error logging.
+        
+        Args:
+            event_type: "FALLBACK", "error", "alert", "notification"
+            source: Provider name ("gemini", "openai", "ollama")
+            severity: "critical", "warning", "info"
+            details: Description of the event
+            chat_id: Optional chat context
+        """
+        timestamp = datetime.now()
+        ts_unix = timestamp.timestamp()
+        event_id = f"sys_{uuid.uuid4().hex[:8]}"
+        safe_details = self._escape(details)
+        
+        query = f"""
+        CREATE (e:SystemEvent {{
+            id: '{event_id}',
+            type: '{event_type}',
+            source: '{source}',
+            severity: '{severity}',
+            details: '{safe_details}',
+            created_at: {ts_unix}
+        }})
+        RETURN e.id
+        """
+        
+        # If chat_id provided, link to chat
+        if chat_id:
+            query = f"""
+            CREATE (e:SystemEvent {{
+                id: '{event_id}',
+                type: '{event_type}',
+                source: '{source}',
+                severity: '{severity}',
+                details: '{safe_details}',
+                created_at: {ts_unix}
+            }})
+            WITH e
+            MATCH (c:Chat {{chat_id: {chat_id}}})
+            CREATE (e)-[:OCCURRED_IN]->(c)
+            RETURN e.id
+            """
+        
+        try:
+            result = await self._query(query)
+            logger.info(f"📊 SystemEvent logged: {event_type} ({severity}) from {source}")
+            return event_id
+        except Exception as e:
+            logger.error(f"Failed to log system event: {e}")
+            return None
+
     async def clear_history(self):
         query = "MATCH (n) DETACH DELETE n"
         await self.redis_client.execute_command("GRAPH.QUERY", self.graph_name, query)
