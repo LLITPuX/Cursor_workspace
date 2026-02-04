@@ -4,6 +4,7 @@ Cognitive Loop - Second Stream Analysis.
 This module implements the Second Stream of the Hybrid Cognitive Pipeline:
 1. Gatekeeper (local Gemma) - Filters 90% of messages with binary classification
 2. Analyst (Gemini/OpenAI) - Deep analysis of important messages
+3. Researcher (optional) - Agentic RAG for search queries
 
 Architecture:
 - Runs as background worker
@@ -41,7 +42,8 @@ class CognitiveLoop:
     1. Message arrives in 'analysis:queue'
     2. Gatekeeper (Gemma) decides: needs analysis? (1/0)
     3. If yes → Analyst (Gemini/OpenAI) extracts structured data
-    4. Result saved to FalkorDB as (:Thought) node
+    4. If search_query exists → Researcher queries Knowledge Graph
+    5. Result saved to FalkorDB as (:Thought) node
     """
     
     # Gatekeeper prompt for binary classification
@@ -89,17 +91,19 @@ class CognitiveLoop:
         redis_client: redis.Redis,
         switchboard: Switchboard,
         memory_provider,  # FalkorDBProvider
+        researcher=None,  # Optional Researcher for agentic RAG
         queue_in: str = "analysis:queue",
         queue_deep: str = "analysis:deep_queue"
     ):
         self.redis = redis_client
         self.switchboard = switchboard
         self.memory = memory_provider
+        self.researcher = researcher
         self.queue_in = queue_in
         self.queue_deep = queue_deep
         self.running = False
         
-        logging.info("CognitiveLoop initialized")
+        logging.info(f"CognitiveLoop initialized (researcher={'enabled' if researcher else 'disabled'})")
 
     async def start(self):
         """Start both Gatekeeper and Analyst workers."""
@@ -227,6 +231,18 @@ class CognitiveLoop:
                         f"facts={len(analysis.new_facts)}, "
                         f"model={response.model_name}"
                     )
+                    
+                    # ═══════════════════════════════════════════════════════
+                    # RESEARCHER - Agentic RAG
+                    # ═══════════════════════════════════════════════════════
+                    if analysis.search_query and self.researcher:
+                        logging.info(f"🔎 Invoking Researcher for: {analysis.search_query}")
+                        try:
+                            graph_answer = await self.researcher.query_knowledge(analysis.search_query)
+                            # Add findings to facts so they are saved in Thought
+                            analysis.new_facts.append(f"Graph Research: {graph_answer}")
+                        except Exception as e:
+                            logging.error(f"Researcher failed: {e}")
                     
                     # Save to graph as (:Thought) node
                     await self._save_thought(

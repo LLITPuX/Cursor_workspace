@@ -8,6 +8,7 @@ from transport.telegram_bot import TelegramBot
 from transport.sender import TelegramSender
 from core.loop import RalphLoop
 from core.analysis_loop import CognitiveLoop
+from core.researcher import Researcher
 from core.providers.gemini_provider import GeminiProvider
 
 # Configure logging
@@ -48,12 +49,19 @@ async def main():
     )
     
     # ═══════════════════════════════════════════════════════════════════════
-    # 4. Initialize Cognitive Loop (Second Stream - Background Analysis)
+    # 4. Initialize Researcher & Cognitive Loop (Second Stream)
     # ═══════════════════════════════════════════════════════════════════════
+    researcher = Researcher(
+        switchboard=ralph_loop.switchboard,
+        memory_provider=memory_provider
+    )
+    logging.info("Researcher Tool initialized")
+
     cognitive_loop = CognitiveLoop(
         redis_client=redis_client,
         switchboard=ralph_loop.switchboard,  # Reuse Switchboard from RalphLoop
-        memory_provider=memory_provider
+        memory_provider=memory_provider,
+        researcher=researcher
     )
     logging.info("CognitiveLoop (Second Stream) initialized")
 
