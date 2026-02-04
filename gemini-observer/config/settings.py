@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 import os
 
 class Settings(BaseSettings):
@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     GEMINI_CLIENT_SECRET_PATH: str = "credentials/client_secret.json"
     GEMINI_TOKEN_PATH: str = "credentials/token.json"
     ALLOWED_USER_IDS: str = "[]" # JSON formatted list of strings
+    
+    # OpenAI Settings (for fallback provider)
+    OPENAI_API_KEY: Optional[str] = None
+    
+    # Admin Settings
+    ADMIN_CHAT_ID: Optional[int] = None
     
     # Redis / FalkorDB Settings
     FALKORDB_HOST: str = "localhost"
@@ -20,6 +26,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore unknown env vars
 
 # Global settings instance
 try:
