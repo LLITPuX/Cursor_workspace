@@ -24,6 +24,8 @@ from core.prompts import (
     CONTEXT_STRATEGY_PROMPT
 )
 from transport.queue import RedisQueue
+from core.context_builder import ContextBuilder
+import json
 
 # ... (imports remain)
 
@@ -42,6 +44,7 @@ class RalphLoop:
         # Note: 'client' argument kept for backward compatibility
         self.memory = memory
         self.queue = queue
+        self.context_builder = ContextBuilder(self.memory)
         self.running = False
         
         # ═══════════════════════════════════════════════════════════════════
@@ -54,20 +57,23 @@ class RalphLoop:
             model="gemma3:4b"
         )
         
-        # Primary provider (OpenAI GPT-4o-mini) - STABILITY FIRST
+        # 1. Primary provider (OpenAI GPT-4o-mini) - STABILITY FIRST
         openai_key = os.getenv("OPENAI_API_KEY")
         if openai_key:
             primary_provider = OpenAIProvider(model="gpt-4o-mini", api_key=openai_key)
+            logging.info("🌟 Primary Provider: OpenAI GPT-4o-mini")
         else:
             logging.warning("No OPENAI_API_KEY. Using Ollama as primary.")
             primary_provider = fast_provider
 
-        # Fallback provider (Gemini 2.0 Flash) - FREE TIER / RATE LIMIT PRONE
-        try:
-            fallback_provider = GeminiProvider(model_name="gemini-2.0-flash")
-        except FileNotFoundError as e:
-            logging.warning(f"GeminiProvider init failed: {e}. using Ollama as fallback.")
-            fallback_provider = fast_provider
+        # 2. Fallback provider (Ollama)
+        fallback_provider = fast_provider
+        # Gemini disabled per user request (429 errors)
+        # try:
+        #     # fallback_provider = GeminiProvider(model_name="gemini-2.5-flash")
+        #     pass
+        # except:
+        #     pass
         
         # Initialize Switchboard with graph logger
         self.switchboard = Switchboard(
@@ -113,25 +119,68 @@ class RalphLoop:
                 history = history_to_messages(chat_messages)
                 history_str = format_chat_history(chat_messages)
 
+
                 # ════════════════════════════════════════════════════════════════
                 # STEP 1: GATEKEEPER (Relevance Filter)
                 # ════════════════════════════════════════════════════════════════
-                filter_prompt = RELEVANCE_FILTER_PROMPT.format(
-                    history=history_str,
-                    message=text
+                
+                # 1.1 Build Prompt from Graph
+                gatekeeper_prompt = await self.context_builder.build_gatekeeper_prompt(
+                    chat_messages, 
+                    current_message_text=text
                 )
                 
-                # Use Switchboard (OPENAI by default) for logical decision
+                # 1.2 Generate Decision
                 filter_response = await self.switchboard.generate(
-                    history=[{"role": "user", "content": filter_prompt}],
-                    use_fast=False # Use smart model for logic
+                    history=[{"role": "user", "content": gatekeeper_prompt}],
+                    use_fast=False
                 )
-                decision = filter_response.content.strip().upper()
                 
-                logging.info(f"🛡️ Gatekeeper Decision: {decision}")
+                decision_text = filter_response.content.strip()
+                
+                # Debug logging
+                self.context_builder.save_debug_prompt(
+                    gatekeeper_prompt, 
+                    decision_text, 
+                    suffix=f"ralph_gatekeeper_{event.get('message_id')}"
+                )
+                
+                # 1.3 Parse JSON
+                decision = "NO"
+                gatekeeper_reasoning = ""
+                
+                try:
+                    # Clean markdown
+                    clean_text = decision_text
+                    if "```json" in clean_text:
+                        clean_text = clean_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in clean_text:
+                        clean_text = clean_text.split("```")[1].strip()
+                        
+                    data = json.loads(clean_text)
+                    
+                    # Normalize keys
+                    norm_data = {}
+                    for k, v in data.items():
+                        norm_data[k.replace("QS_", "").lower().strip()] = v
+                        
+                    target = norm_data.get("target", "UNKNOWN").upper()
+                    gatekeeper_reasoning = norm_data.get("reasoning", "")
+                    
+                    # Logic: Direct, Contextual, or self-ref
+                    if target in ["DIRECT", "CONTEXTUAL", "BOBER SIKFAN", "BOBER", "BOT"]:
+                        decision = "YES"
+                    
+                    logging.info(f"🛡️ Gatekeeper: Target={target}, Reasoning='{gatekeeper_reasoning[:50]}...'")
+                    
+                except Exception as e:
+                    logging.error(f"Gatekeeper Parse Error: {e}. Defaulting to YES (Safe Mode).")
+                    decision = "YES" # Constructive fallback
+                
+                logging.info(f"🛡️ Final Decision: {decision}")
                 
                 if "NO" in decision and "YES" not in decision:
-                    logging.info("🛑 Logic: Ignoring message (not relevant)")
+                    logging.info("🛑 Logic: Ignoring message")
                     continue
 
                 # ════════════════════════════════════════════════════════════════
@@ -175,6 +224,10 @@ class RalphLoop:
                     # Modify the last message in history to include found facts
                     # Or append as system instruction
                      system_prompt += rag_context
+                     
+                # Inject Gatekeeper Reasoning (Chain of Thought Context)
+                if gatekeeper_reasoning:
+                     system_prompt += f"\n\nGATEKEEPER REASONING:\n{gatekeeper_reasoning}\n(Use this context to guide your tone and detail level)"
                 
                 try:
                     # Main Generation call

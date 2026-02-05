@@ -22,6 +22,7 @@ import redis.asyncio as redis
 
 from core.llm_interface import ProviderResponse
 from core.switchboard import Switchboard
+from core.context_builder import ContextBuilder
 
 
 @dataclass
@@ -101,6 +102,8 @@ class CognitiveLoop:
         self.researcher = researcher
         self.queue_in = queue_in
         self.queue_deep = queue_deep
+
+        self.context_builder = ContextBuilder(self.memory)
         self.running = False
         
         logging.info(f"CognitiveLoop initialized (researcher={'enabled' if researcher else 'disabled'})")
@@ -134,9 +137,8 @@ class CognitiveLoop:
     
     async def _gatekeeper_worker(self):
         """
-        Gatekeeper worker: Uses local Gemma to filter messages.
-        
-        Economy: ~90% of messages are filtered out, saving cloud API costs.
+        Gatekeeper worker: Uses Graph Context to classify messages.
+        Now uses Gemini (via Switchboard) for detailed classification.
         """
         logging.info("🚧 Gatekeeper worker started")
         
@@ -151,36 +153,86 @@ class CognitiveLoop:
                 _, raw_data = result
                 message_data = json.loads(raw_data)
                 text = message_data.get("text", "")
+                chat_id = message_data.get("chat_id")
                 
                 if not text or len(text) < 3:
-                    logging.debug(f"Gatekeeper: Skipping short message")
+                     # Skip very short messages (noise)
                     continue
                 
-                # Ask Gemma: needs analysis?
-                prompt = self.GATEKEEPER_PROMPT + text
+                # 1. Build Dynamic Prompt from Graph
+                # We need chat context for the prompt
+                chat_context = await self.memory.get_chat_context(chat_id, limit=20)
+                logging.debug(f"📜 ContextBuilder: Fetched {len(chat_context)} recent messages for prompt")
                 
+                # Use Generic "Gatekeeper" prompt builder
+                prompt = await self.context_builder.build_gatekeeper_prompt(chat_context, current_message_text=text)
+                
+                # 2. Ask Gemini (use_fast=False per user instruction)
                 response: ProviderResponse = await self.switchboard.generate(
                     history=[{"role": "user", "content": prompt}],
                     system_prompt=None,
-                    use_fast=True  # Force Ollama/Gemma
+                    use_fast=False  # User: "Ollama ne potyanet" → Use Gemini/OpenAI
                 )
                 
-                decision = response.content.strip()
+                decision_text = response.content.strip()
                 
-                # Parse binary decision
-                needs_analysis = decision.startswith("1")
+                # 3. Debug logging
+                self.context_builder.save_debug_prompt(prompt, decision_text, suffix=f"gatekeeper_{message_data.get('message_id')}")
                 
-                logging.info(
-                    f"🚧 Gatekeeper: '{text[:30]}...' → {decision} "
-                    f"({'PASS' if needs_analysis else 'SKIP'})"
-                )
+                # 4. Parse JSON Decision
+                # Clean markdown blocks if present
+                clean_text = decision_text
+                if "```json" in clean_text:
+                    clean_text = clean_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in clean_text:
+                    clean_text = clean_text.split("```")[1].strip()
                 
-                if needs_analysis:
-                    # Pass to deep analysis queue
-                    await self.redis.lpush(
-                        self.queue_deep,
-                        json.dumps(message_data, ensure_ascii=False)
+                try:
+                    decision_data = json.loads(clean_text)
+                    
+                    # Normalize keys (handle QS_ prefixes from some models)
+                    normalized_data = {}
+                    for k, v in decision_data.items():
+                        clean_key = k.replace("QS_", "").lower().strip()
+                        normalized_data[clean_key] = v
+                        
+                    target = normalized_data.get("target", "UNKNOWN").upper()
+                    depth = normalized_data.get("required_depth", "IGNORE").upper()
+                    
+                    # Map "depth" key alias
+                    if "depth" in normalized_data and depth == "IGNORE":
+                         depth = normalized_data["depth"].upper()
+                    
+                    logging.info(
+                        f"🚧 Gatekeeper: '{text[:30]}...' → Target: {target}, Depth: {depth}"
                     )
+                    
+                    # Logic: Identify if we should respond
+                    should_analyze = False
+                    
+                    if target in ["DIRECT", "CONTEXTUAL", "BOBER SIKFAN", "BOBER", "BOT"]:
+                        should_analyze = True
+                    elif depth in ["DEEP_ANALYSIS", "QUICK_REPLY", "SHALLOW"]:
+                        should_analyze = True
+                        
+                    decision = "YES" if should_analyze else "NO"
+                    
+                    if should_analyze:
+                        logging.info("✅ Gatekeeper: PASSED (Relevant)")
+                        # Append Gatekeeper metadata to message before passing
+                        message_data["gatekeeper_decision"] = decision
+                        message_data["gatekeeper_target"] = target
+                        message_data["gatekeeper_depth"] = depth
+                        
+                        await self.redis.lpush(
+                            self.queue_deep,
+                            json.dumps(message_data, ensure_ascii=False)
+                        )
+                        
+                except json.JSONDecodeError:
+                    logging.error(f"Gatekeeper JSON Parse Error. Response: {decision_text}")
+                    # Fallback: if it failed, maybe it's complex, let's analyze it just in case?
+                    # Or skip. For now, log and skip.
                     
             except Exception as e:
                 logging.error(f"Gatekeeper error: {e}")
