@@ -74,7 +74,7 @@ class Switchboard:
         
         # Primary path - try Gemini first
         try:
-            logging.info("Switchboard: Trying PRIMARY provider (Gemini)")
+            logging.info(f"Switchboard: Trying PRIMARY provider ({self.primary.get_provider_name()})")
             return await self.primary.generate_response(history, system_prompt)
             
         except RateLimitError as e:

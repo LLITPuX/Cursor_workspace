@@ -59,8 +59,14 @@ class OpenAIProvider(LLMProvider):
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         
+        logging.info(f"DEBUG: History type: {type(history)}")
         # Add history
-        for msg in history:
+        for i, msg in enumerate(history):
+            logging.debug(f"DEBUG: Processing msg {i}: {msg}")
+            if msg is None:
+                logging.warning(f"DEBUG: Msg {i} is None!")
+                continue
+
             role = msg.get("role")
             content = msg.get("content") or (msg.get("parts", [""])[0] if msg.get("parts") else "")
             

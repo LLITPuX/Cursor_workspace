@@ -62,8 +62,13 @@ class Researcher:
 - [:NEXT] — Message→Message (хронологія)
 - [:DERIVED_FROM] — Thought→Message
 
-Сформуй Cypher-запит для наступного питання. Поверни ТІЛЬКИ запит без пояснень.
-Використовуй LIMIT 10 для обмеження результатів.
+Сформуй Cypher-запит для наступного питання.
+ВАЖЛИВО:
+1. Використовуй SEARCH (CONTAINS) по ключовим словам, а не цілим фразам.
+2. Якщо запит однією мовою, а в базі може бути інша — шукай обома мовами (Укр/Рос).
+   Наприклад: WHERE toLower(m.text) CONTAINS 'їду' OR toLower(m.text) CONTAINS 'еду'
+3. Поверни ТІЛЬКИ запит без пояснень.
+4. Використовуй LIMIT 10.
 
 Питання: """
 
@@ -84,6 +89,28 @@ class Researcher:
         self.switchboard = switchboard
         self.memory = memory_provider
         logging.info("Researcher initialized")
+
+    def _clean_data(self, data: Any) -> Any:
+        """Recursively decode bytes and handle graph objects."""
+        if isinstance(data, bytes):
+            return data.decode('utf-8')
+        elif isinstance(data, list):
+            return [self._clean_data(item) for item in data]
+        elif isinstance(data, dict):
+            return {self._clean_data(k): self._clean_data(v) for k, v in data.items()}
+        elif hasattr(data, 'properties') and hasattr(data, 'labels'): # Node object
+            return {
+                "id": getattr(data, 'id', None),
+                "labels": getattr(data, 'labels', []),
+                "properties": self._clean_data(getattr(data, 'properties', {}))
+            }
+        elif hasattr(data, 'properties') and hasattr(data, 'relation'): # Edge object
+            return {
+                "id": getattr(data, 'id', None),
+                "type": getattr(data, 'relation', None),
+                "properties": self._clean_data(getattr(data, 'properties', {}))
+            }
+        return data
 
     async def query_knowledge(self, question: str) -> str:
         """
@@ -173,17 +200,19 @@ class Researcher:
             rows = result[1] if len(result) > 1 else []
             
             # Convert to list of dicts
+            # Convert to list of dicts
             data = []
             for row in rows:
                 row_dict = {}
                 for i, value in enumerate(row):
                     key = headers[i] if i < len(headers) else f"col{i}"
-                    # Decode bytes if needed
+                    # Clean key
                     if isinstance(key, bytes):
                         key = key.decode('utf-8')
-                    if isinstance(value, bytes):
-                        value = value.decode('utf-8')
-                    row_dict[key] = value
+                    
+                    # Clean value recursively
+                    row_dict[key] = self._clean_data(value)
+                    
                 data.append(row_dict)
             
             return QueryResult(success=True, data=data, query=cypher_query)

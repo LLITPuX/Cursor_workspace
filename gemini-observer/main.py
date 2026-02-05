@@ -56,6 +56,9 @@ async def main():
         memory_provider=memory_provider
     )
     logging.info("Researcher Tool initialized")
+    
+    # Inject Researcher into RalphLoop for RAG
+    ralph_loop.set_researcher(researcher)
 
     cognitive_loop = CognitiveLoop(
         redis_client=redis_client,

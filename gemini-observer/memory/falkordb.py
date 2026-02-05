@@ -41,6 +41,81 @@ class FalkorDBProvider(MemoryProvider):
             return ""
         return text.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
 
+    # Static mapping for known authors (Telegram ID -> Abbreviation)
+    AUTHOR_ABBREV = {
+        298085237: "MA",      # Maks
+        5561942654: "YU",     # Yulianna
+        8521381973: "BS",     # Bober Sikfan (Agent)
+    }
+
+    def __init__(self, redis_client: redis.Redis, graph_name: str = "GeminiMemory"):
+        self.redis_client = redis_client
+        self.graph_name = graph_name
+
+    async def _query(self, query: str) -> list:
+        """Execute a Cypher query against the graph."""
+        try:
+            result = await self.redis_client.execute_command("GRAPH.QUERY", self.graph_name, query)
+            return result
+        except Exception as e:
+            logger.error(f"FalkorDB Query Error: {e}\nQuery: {query}")
+            raise
+
+    def _escape(self, text: str) -> str:
+        """Escape special characters for Cypher string literals."""
+        if text is None:
+            return ""
+        return text.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+
+    async def _get_next_message_name(self, author_id: int, day_date: str, telegram_author_name: str = "") -> str:
+        """
+        Generate the next message name in strict format {ABBREV}{SEQ:02d}.
+        
+        Args:
+            author_id: Telegram User ID
+            day_date: Date string "YYYY-MM-DD"
+            telegram_author_name: Author name for fallback abbreviation generation
+        """
+        # 1. Determine Abbreviation
+        abbrev = self.AUTHOR_ABBREV.get(author_id)
+        
+        # Fallback if not in static mapping
+        if not abbrev:
+            name_parts = telegram_author_name.strip().split()
+            if len(name_parts) >= 2:
+                abbrev = (name_parts[0][0] + name_parts[1][0]).upper()
+            elif len(name_parts) == 1 and len(name_parts[0]) > 1:
+                abbrev = name_parts[0][:2].upper()
+            elif len(name_parts) == 1:
+                abbrev = name_parts[0][0].upper()
+            else:
+                abbrev = "U"
+        
+        # 2. Count existing messages for this author on this day
+        query = f"""
+        MATCH (d:Day {{date: '{day_date}'}})
+        MATCH (m:Message)-[:HAPPENED_AT]->(d)
+        MATCH (author)-[:AUTHORED|GENERATED]->(m)
+        WHERE author.telegram_id = {author_id}
+        RETURN count(m)
+        """
+        try:
+            result = await self._query(query)
+            # Result format: [[count]]
+            count = result[1][0][0] if result and result[1] else 0
+            # Ensure count is int (RedisGraph might return float or string depending on client)
+            if isinstance(count, bytes):
+                count = int(float(count.decode('utf-8')))
+            else:
+                count = int(count)
+        except Exception as e:
+            logger.warning(f"Failed to count messages for naming, starting at 0: {e}")
+            count = 0
+            
+        # 3. Generate Name (next sequence)
+        seq = count + 1
+        return f"{abbrev}{seq:02d}"
+
     async def save_user_message(
         self,
         user_telegram_id: int,
@@ -60,22 +135,14 @@ class FalkorDBProvider(MemoryProvider):
         ts_unix = timestamp.timestamp()
         safe_text = self._escape(text)
         
-        # Robust Abbreviation Logic
-        # "Maks" -> "MA", "John Doe" -> "JD", "A" -> "A"
-        name_parts = author_name.strip().split()
-        if len(name_parts) >= 2:
-            abbrev = (name_parts[0][0] + name_parts[1][0]).upper()
-        elif len(name_parts) == 1 and len(name_parts[0]) > 1:
-            abbrev = name_parts[0][:2].upper()
-        elif len(name_parts) == 1:
-            abbrev = name_parts[0][0].upper()
-        else:
-            abbrev = "U"
+        # Generate Strict Name
+        node_name = await self._get_next_message_name(user_telegram_id, day_date, author_name)
         
         query = f"""
-        // Ensure User exists
+        // Ensure User exists and update metadata
         MERGE (u:User {{telegram_id: {user_telegram_id}}})
         ON CREATE SET u.id = 'user_{user_telegram_id}', u.name = '{author_name}'
+        ON MATCH SET u.name = '{author_name}'
         
         // Ensure Chat exists
         MERGE (c:Chat {{chat_id: {chat_id}}})
@@ -91,7 +158,7 @@ class FalkorDBProvider(MemoryProvider):
             message_id: {message_id},
             text: '{safe_text}',
             created_at: {ts_unix},
-            name: '{abbrev}'
+            name: '{node_name}'
         }})
         
         // Create relationships
@@ -114,7 +181,7 @@ class FalkorDBProvider(MemoryProvider):
         
         try:
             result = await self._query(query)
-            logger.info(f"💾 Saved user message: {msg_uid} ({abbrev})")
+            logger.info(f"💾 Saved user message: {msg_uid} ({node_name})")
             return msg_uid
         except Exception as e:
             logger.error(f"Failed to save user message: {e}")
@@ -139,8 +206,8 @@ class FalkorDBProvider(MemoryProvider):
         ts_unix = timestamp.timestamp()
         safe_text = self._escape(text)
         
-        # Agent abbreviation is fixed: "BS" for Bober Sikfan
-        abbrev = "BS"
+        # Agent Name
+        node_name = await self._get_next_message_name(agent_telegram_id, day_date, "Bober Sikfan")
         
         query = f"""
         // Ensure Agent exists
@@ -161,7 +228,7 @@ class FalkorDBProvider(MemoryProvider):
             message_id: {message_id},
             text: '{safe_text}',
             created_at: {ts_unix},
-            name: '{abbrev}'
+            name: '{node_name}'
         }})
         
         // Create relationships
@@ -184,7 +251,7 @@ class FalkorDBProvider(MemoryProvider):
         
         try:
             result = await self._query(query)
-            logger.info(f"💾 Saved agent response: {msg_uid}")
+            logger.info(f"💾 Saved agent response: {msg_uid} ({node_name})")
             return msg_uid
         except Exception as e:
             logger.error(f"Failed to save agent response: {e}")
