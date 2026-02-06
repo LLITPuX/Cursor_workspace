@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     FALKORDB_GRAPH_GROUP: str = "group_chat_memory"
     REDIS_QUEUE_INCOMING: str = "chat:incoming"
     REDIS_QUEUE_OUTGOING: str = "chat:outgoing"
+    REDIS_QUEUE_BRAIN: str = "chat:brain"  # Stream 1 -> Stream 2 Queue
     
     class Config:
         env_file = ".env"

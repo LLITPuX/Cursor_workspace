@@ -13,10 +13,10 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 
 class TelegramBot:
-    def __init__(self, settings: Settings, redis_queue: RedisQueue, memory: FalkorDBProvider = None, cognitive_loop = None):
+    def __init__(self, settings: Settings, redis_queue: RedisQueue, cognitive_loop = None):
         self.settings = settings
         self.queue = redis_queue
-        self.memory = memory  # First Stream: Graph Memory
+        # self.memory removed (Decoupled)
         self.cognitive_loop = cognitive_loop  # Second Stream: Analysis Loop
         
         # FIX: Force IPv4 to prevent aiohttp hang in Docker
@@ -46,8 +46,8 @@ class TelegramBot:
              
         await message.answer("Gemini Observer is online (Async Mode).")
 
-    async def on_message(self, message: Message):
-        """Receive message and push to Redis Queue"""
+    async def on_message(self, message: types.Message):
+        """Receive message and push to Redis Queue (Ingestion)"""
         user_id = str(message.from_user.id)
         
         if user_id not in self.settings.ALLOWED_USER_IDS:
@@ -56,43 +56,21 @@ class TelegramBot:
 
         logging.info(f"Received message from {user_id}: {message.text}")
         
-        # ════════════════════════════════════════════════════════════════
-        # FIRST STREAM: Save to Graph Memory
-        # ════════════════════════════════════════════════════════════════
-        if self.memory and message.text:
-            try:
-                # Get author name for abbreviation (e.g. "John Doe" -> "JD")
-                author_name = message.from_user.first_name or "User"
-                if message.from_user.last_name:
-                    author_name += " " + message.from_user.last_name
-                
-                logging.info(f"Saving msg from: '{author_name}'")
-                
-                await self.memory.save_user_message(
-                    user_telegram_id=message.from_user.id,
-                    chat_id=message.chat.id,
-                    message_id=message.message_id,
-                    text=message.text,
-                    timestamp=message.date or datetime.now(),
-                    author_name=author_name
-                )
-            except Exception as e:
-                logging.error(f"First Stream Error: {e}")
-        
         # Prepare event payload
         event = {
             "chat_id": message.chat.id,
             "user_id": message.from_user.id,
             "text": message.text,
             "timestamp": message.date.isoformat(),
-            "message_id": message.message_id
+            "message_id": message.message_id,
+            "author_name": message.from_user.full_name or "User"
         }
         
-        # Push to Queue (for Brain processing)
+        # Push to Queue (Scribe will pick this up)
         await self.queue.push_incoming(event)
         
         # ════════════════════════════════════════════════════════════════
-        # SECOND STREAM: Enqueue for Cognitive Analysis
+        # SECOND STREAM: Enqueue for Cognitive Analysis (Optional/Legacy)
         # ════════════════════════════════════════════════════════════════
         if self.cognitive_loop and message.text:
             try:
