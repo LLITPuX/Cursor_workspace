@@ -8,7 +8,8 @@ from config.settings import settings
 from transport.queue import RedisQueue
 from memory.falkordb import FalkorDBProvider
 from core.switchboard import Switchboard
-from core.prompts import build_system_prompt, history_to_messages
+from core.prompts import history_to_messages
+from core.memory.prompt_builder import GraphPromptBuilder
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -25,10 +26,11 @@ class Responder:
     - Loops back to Ingestion Queue (Self-correction/Feedback) - TODO.
     """
     
-    def __init__(self, redis_queue: RedisQueue, memory: FalkorDBProvider, switchboard: Switchboard):
+    def __init__(self, redis_queue: RedisQueue, memory: FalkorDBProvider, switchboard: Switchboard, prompt_builder: GraphPromptBuilder = None):
         self.queue = redis_queue
         self.memory = memory
         self.switchboard = switchboard
+        self.prompt_builder = prompt_builder
         self.running = False
         self.name = "Stream 5 (Responder)"
 
@@ -81,12 +83,17 @@ class Responder:
             chat_history = await self.memory.get_chat_context(chat_id, limit=10)
             messages = history_to_messages(chat_history)
             
-            # Build System Prompt
-            system_prompt = build_system_prompt(chat_history)
-            
-            # Inject RAG Context
-            if rag_context:
-                system_prompt += rag_context
+            # Build System Prompt from Graph
+            if self.prompt_builder:
+                system_prompt = await self.prompt_builder.build_responder_prompt(
+                    chat_history=chat_history, rag_context=rag_context
+                )
+            else:
+                # Legacy fallback
+                from core.prompts import build_system_prompt
+                system_prompt = build_system_prompt(chat_history)
+                if rag_context:
+                    system_prompt += rag_context
                 
             # Call LLM
             response = await self.switchboard.generate(

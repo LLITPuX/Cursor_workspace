@@ -15,6 +15,7 @@ from core.providers.gemini_provider import GeminiProvider
 from core.providers.openai_provider import OpenAIProvider
 from core.providers.ollama_provider import OllamaProvider
 from core.researcher import Researcher
+from core.memory.prompt_builder import GraphPromptBuilder
 
 # Streams
 from streams.scribe import Scribe
@@ -37,6 +38,9 @@ async def main():
     
     # 2. Memory & Queues
     memory_provider = FalkorDBProvider(redis_client=redis_client)
+    
+    # GraphPromptBuilder (reads from GeminiStream graph)
+    prompt_builder = GraphPromptBuilder(redis_client=redis_client)
     
     # Unified Queue Wrapper (Note: each stream uses specific keys from settings)
     # We pass the same RedisQueue instance or create separate ones, 
@@ -90,16 +94,16 @@ async def main():
     scribe = Scribe(redis_queue=redis_queue_ingress, memory=memory_provider)
     
     # Stream 2: Thinker (Brain Queue -> Narrative -> Analyst Queue)
-    thinker = Thinker(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard)
+    thinker = Thinker(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard, prompt_builder=prompt_builder)
     
     # Stream 3: Analyst (Analyst Queue -> Plan -> Coordinator Queue)
-    analyst = Analyst(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard)
+    analyst = Analyst(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard, prompt_builder=prompt_builder)
     
     # Stream 4: Coordinator (Coordinator Queue -> Action -> Responder Queue)
     coordinator = Coordinator(redis_queue=redis_queue_ingress, memory=memory_provider, researcher=researcher)
     
     # Stream 5: Responder (Responder Queue -> Text -> Outgoing Queue)
-    responder = Responder(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard)
+    responder = Responder(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard, prompt_builder=prompt_builder)
 
     # 6. Transport Layer
     # TelegramBot puts messages into Ingestion Queue

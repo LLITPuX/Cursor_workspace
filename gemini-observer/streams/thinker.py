@@ -8,7 +8,7 @@ from config.settings import settings
 from transport.queue import RedisQueue
 from memory.falkordb import FalkorDBProvider
 from core.switchboard import Switchboard
-from core.prompts import build_narrative_prompt
+from core.memory.prompt_builder import GraphPromptBuilder
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -25,10 +25,11 @@ class Thinker:
     - Forwards to Analyst Queue (Stream 3).
     """
     
-    def __init__(self, redis_queue: RedisQueue, memory: FalkorDBProvider, switchboard: Switchboard):
+    def __init__(self, redis_queue: RedisQueue, memory: FalkorDBProvider, switchboard: Switchboard, prompt_builder: GraphPromptBuilder = None):
         self.queue = redis_queue
         self.memory = memory
         self.switchboard = switchboard
+        self.prompt_builder = prompt_builder
         self.running = False
         self.name = "Stream 2 (Thinker)"
 
@@ -86,18 +87,23 @@ class Thinker:
                 # This is fallback.
                  msg_uid = f"{chat_id}:{event.get('message_id')}"
 
-            # Build Prompt
-            # We need to fetch recent context to make sense of this message
+            # Build Prompt from Graph
             chat_context = await self.memory.get_chat_context(chat_id, limit=5)
             
-            prompt = build_narrative_prompt(current_message=text, chat_history=chat_context)
+            if self.prompt_builder:
+                prompt = await self.prompt_builder.build_narrative_prompt(
+                    current_message=text, chat_history=chat_context
+                )
+                system_prompt = await self.prompt_builder.build_system_prompt("Thinker")
+            else:
+                # Legacy fallback
+                from core.prompts import build_narrative_prompt
+                prompt = build_narrative_prompt(current_message=text, chat_history=chat_context)
+                system_prompt = "You are the inner voice of an AI. Analyze the situation briefly."
             
-            # Call LLM (Fast or Primary)
-            # Narrative is 'Intuition', so Fast model (Ollama) is often preferred for speed,
-            # but for quality we might use Primary. Let's use Switchboard default (Primary -> Fallback).
             response = await self.switchboard.generate(
                 history=[{"role": "user", "content": prompt}],
-                system_prompt="You are the inner voice of an AI. Analyze the situation briefly."
+                system_prompt=system_prompt
             )
             
             narrative_text = response.content.strip()

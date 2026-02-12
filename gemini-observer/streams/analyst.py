@@ -8,7 +8,7 @@ from config.settings import settings
 from transport.queue import RedisQueue
 from memory.falkordb import FalkorDBProvider
 from core.switchboard import Switchboard
-from core.prompts import build_analyst_prompt
+from core.memory.prompt_builder import GraphPromptBuilder
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -26,10 +26,11 @@ class Analyst:
     - Forwards to Coordinator Queue (Stream 4).
     """
     
-    def __init__(self, redis_queue: RedisQueue, memory: FalkorDBProvider, switchboard: Switchboard):
+    def __init__(self, redis_queue: RedisQueue, memory: FalkorDBProvider, switchboard: Switchboard, prompt_builder: GraphPromptBuilder = None):
         self.queue = redis_queue
         self.memory = memory
         self.switchboard = switchboard
+        self.prompt_builder = prompt_builder
         self.running = False
         self.name = "Stream 3 (Analyst)"
 
@@ -74,14 +75,21 @@ class Analyst:
             narrative_id = snapshot_data.get("id")
             original_event = snapshot_data.get("trigger_event", {})
             
-            # Build Prompt for Reasoning
-            prompt = build_analyst_prompt(narrative=narrative, original_text=original_event.get("text", ""))
+            # Build Prompt from Graph
+            if self.prompt_builder:
+                prompt = await self.prompt_builder.build_analyst_prompt(
+                    narrative=narrative, original_text=original_event.get("text", "")
+                )
+                system_prompt = await self.prompt_builder.build_system_prompt("Analyst")
+            else:
+                # Legacy fallback
+                from core.prompts import build_analyst_prompt
+                prompt = build_analyst_prompt(narrative=narrative, original_text=original_event.get("text", ""))
+                system_prompt = "You are a strategic analyst. Decide the next course of action."
             
-            # Call LLM
-            # Analyst needs high reasoning capabilities -> Primary Model
             response = await self.switchboard.generate(
                 history=[{"role": "user", "content": prompt}],
-                system_prompt="You are a strategic analyst. Decide the next course of action."
+                system_prompt=system_prompt
             )
             
             analysis_text = response.content.strip()

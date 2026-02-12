@@ -1,7 +1,9 @@
 # System Prompts for Gemini Observer
-
+#
 # ══════════════════════════════════════════════════════════════════════════════
-# BOBER SIKFAN - КОРОТКИЙ СИСТЕМНИЙ ПРОМПТ
+# ⚠️  LEGACY: Статичні промпти. Замінені на GraphPromptBuilder
+#     (core/memory/prompt_builder.py), який читає з графа GeminiStream.
+#     Зберігаються для backward compatibility та fallback.
 # ══════════════════════════════════════════════════════════════════════════════
 
 SYSTEM_CORE = """Ти — Бобр Сікфан, просунутий AI-асистент.
