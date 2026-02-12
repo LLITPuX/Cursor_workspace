@@ -1,117 +1,132 @@
 import asyncio
 import logging
 import redis.asyncio as redis
+import os
+
 from config.settings import settings
 from memory.falkordb import FalkorDBProvider
 from transport.queue import RedisQueue
 from transport.telegram_bot import TelegramBot
 from transport.sender import TelegramSender
-from core.loop import RalphLoop
-from core.analysis_loop import CognitiveLoop
-from core.researcher import Researcher
+
+# Core Components
+from core.switchboard import Switchboard
 from core.providers.gemini_provider import GeminiProvider
+from core.providers.openai_provider import OpenAIProvider
+from core.providers.ollama_provider import OllamaProvider
+from core.researcher import Researcher
+
+# Streams
+from streams.scribe import Scribe
+from streams.thinker import Thinker
+from streams.analyst import Analyst
+from streams.coordinator import Coordinator
+from streams.responder import Responder
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 async def main():
-    logging.info("🚀 SYSTEM IGNITION: Initializing Synapse Phase...")
+    logging.info("🚀 SYSTEM IGNITION: Stream Architecture V2 (Local Cortex)...")
 
-    # 1. Shared Async Connection Pool
-    # Note: We use the hostname 'falkordb' for Docker networking.
+    # 1. Connection Pool
     redis_url = f"redis://{settings.FALKORDB_HOST}:{settings.FALKORDB_PORT}"
     logging.info(f"Connecting to Redis/FalkorDB at {redis_url}...")
     
     redis_client = redis.from_url(redis_url, encoding="utf-8", decode_responses=False)
     
-    # 2. Init Shared Components
-    # 2. Init Shared Components
-    # Queue for Ingress (Bot -> Scribe) and Egress (Sender)
+    # 2. Memory & Queues
+    memory_provider = FalkorDBProvider(redis_client=redis_client)
+    
+    # Unified Queue Wrapper (Note: each stream uses specific keys from settings)
+    # We pass the same RedisQueue instance or create separate ones, 
+    # but since RediqueQueue implementation is generic and keys are passed to methods, 
+    # we can mostly reuse the client connection.
+    # However, existing streams expect a RedisQueue object which has specific 'incoming/outgoing' keys baked in? 
+    # Let's check RedisQueue implementation. 
+    # It seems Scribe and Bot use 'incoming_key' and 'outgoing_key'.
+    # New streams use explicit keys in their start() loops via settings.
+    
+    # Queue for Ingress (Bot -> Scribe)
     redis_queue_ingress = RedisQueue(
         redis_client=redis_client,
         incoming_key=settings.REDIS_QUEUE_INCOMING,
         outgoing_key=settings.REDIS_QUEUE_OUTGOING
     )
     
-    # Queue for Brain (Scribe -> RalphLoop)
-    # The Brain sees 'incoming' as the Brain Queue.
-    redis_queue_brain = RedisQueue(
-        redis_client=redis_client,
-        incoming_key=settings.REDIS_QUEUE_BRAIN,
-        outgoing_key=settings.REDIS_QUEUE_OUTGOING
-    )
+    # 3. Switchboard (Intelligence Core)
+    # Fast (Ollama)
+    fast_provider = OllamaProvider(host="http://falkordb-ollama:11434", model="gemma3:4b")
     
-    memory_provider = FalkorDBProvider(redis_client=redis_client)
-    # NOTE: Genesis Nodes (User, Agent, Chat, Year, Day) are pre-created
-
-    # 3. Stream 1: The Scribe
-    from streams.scribe import Scribe
-    scribe = Scribe(redis_queue=redis_queue_ingress, memory=memory_provider)
-
-    # 4. Initialize Logic Core (Brain) - Reads from BRAIN Queue
-    gemini_provider = None
+    # Primary (Gemini or OpenAI)
+    # We try Gemini first
     try:
         gemini_provider = GeminiProvider()
-        logging.info("Gemini Provider Initialized.")
+        logging.info("🌟 Primary Provider: Gemini")
+        primary_provider = gemini_provider
     except Exception as e:
-        logging.critical(f"Failed to initialize Gemini Provider: {e}")
-    
-    ralph_loop = RalphLoop(
-        memory=memory_provider,
-        client=gemini_provider,
-        queue=redis_queue_brain  # <--- Now reads from Brain Queue
-    )
-    
-    # ═══════════════════════════════════════════════════════════════════════
-    # 5. Initialize Researcher & Cognitive Loop (Second Stream)
-    # ═══════════════════════════════════════════════════════════════════════
-    researcher = Researcher(
-        switchboard=ralph_loop.switchboard,
-        memory_provider=memory_provider
-    )
-    logging.info("Researcher Tool initialized")
-    
-    # Inject Researcher into RalphLoop for RAG
-    ralph_loop.set_researcher(researcher)
+        logging.warning(f"Gemini not available: {e}")
+        primary_provider = fast_provider # Fallback if init fails
 
-    cognitive_loop = CognitiveLoop(
-        redis_client=redis_client,
-        switchboard=ralph_loop.switchboard,  # Reuse Switchboard from RalphLoop
-        memory_provider=memory_provider,
-        researcher=researcher
-    )
-    logging.info("CognitiveLoop (Second Stream) initialized")
+    # Secondary (OpenAI)
+    fallback_provider = fast_provider
+    if settings.OPENAI_API_KEY:
+         fallback_provider = OpenAIProvider(model="gpt-4o-mini", api_key=settings.OPENAI_API_KEY)
+         logging.info("🛡️ Fallback Provider: OpenAI")
 
-    # 6. Initialize Transport
+    switchboard = Switchboard(
+        primary=primary_provider,
+        fallback=fallback_provider,
+        fast=fast_provider,
+        graph_logger=memory_provider
+    )
+    
+    # 4. Tools
+    researcher = Researcher(switchboard=switchboard, memory_provider=memory_provider)
+
+    # 5. Initialize Streams
+    
+    # Stream 1: Scribe (Ingest -> Graph -> Brain Queue)
+    scribe = Scribe(redis_queue=redis_queue_ingress, memory=memory_provider)
+    
+    # Stream 2: Thinker (Brain Queue -> Narrative -> Analyst Queue)
+    thinker = Thinker(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard)
+    
+    # Stream 3: Analyst (Analyst Queue -> Plan -> Coordinator Queue)
+    analyst = Analyst(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard)
+    
+    # Stream 4: Coordinator (Coordinator Queue -> Action -> Responder Queue)
+    coordinator = Coordinator(redis_queue=redis_queue_ingress, memory=memory_provider, researcher=researcher)
+    
+    # Stream 5: Responder (Responder Queue -> Text -> Outgoing Queue)
+    responder = Responder(redis_queue=redis_queue_ingress, memory=memory_provider, switchboard=switchboard)
+
+    # 6. Transport Layer
+    # TelegramBot puts messages into Ingestion Queue
+    # logic_loop=None because we don't have a monolithic loop anymore
     telegram_bot = TelegramBot(
         settings=settings, 
         redis_queue=redis_queue_ingress, 
-        cognitive_loop=cognitive_loop  # Pass for Second Stream enqueue
+        cognitive_loop=None 
     )
+    
+    # TelegramSender reads from Outgoing Queue
     telegram_sender = TelegramSender(settings=settings, redis_queue=redis_queue_ingress, memory=memory_provider)
 
     # 7. Launch Parallel Tasks
-    logging.info("Launching parallel services...")
+    logging.info("🌊 Launching Stream Pipeline...")
     
-    tasks = []
+    tasks = [
+        asyncio.create_task(telegram_bot.start(), name="TelegramBot"),
+        asyncio.create_task(scribe.start(), name="Stream-1-Scribe"),
+        asyncio.create_task(thinker.start(), name="Stream-2-Thinker"),
+        asyncio.create_task(analyst.start(), name="Stream-3-Analyst"),
+        asyncio.create_task(coordinator.start(), name="Stream-4-Coordinator"),
+        asyncio.create_task(responder.start(), name="Stream-5-Responder"),
+        asyncio.create_task(telegram_sender.start(), name="TelegramSender")
+    ]
     
-    # Task A: Listener (Polling)
-    tasks.append(asyncio.create_task(telegram_bot.start()))
-    
-    # Task B: Stream 1 - Scribe
-    tasks.append(asyncio.create_task(scribe.start()))
-    
-    # Task C: Brain (RalphLoop)
-    tasks.append(asyncio.create_task(ralph_loop.run_worker()))
-    
-    # Task D: Sender (Worker)
-    tasks.append(asyncio.create_task(telegram_sender.start()))
-    
-    # Task E: Second Stream - Cognitive Loop (Background Analysis)
-    tasks.append(asyncio.create_task(cognitive_loop.start()))
-
-    logging.info("🚀 SYSTEM ONLINE. All systems go.")
-    logging.info("📊 Streams: Scribe -> Brain -> Response")
+    logging.info(f"🚀 SYSTEM ONLINE. {len(tasks)} active tasks.")
     
     try:
         await asyncio.gather(*tasks)
@@ -120,9 +135,11 @@ async def main():
     finally:
         await telegram_bot.stop()
         await scribe.stop()
+        await thinker.stop()
+        await analyst.stop()
+        await coordinator.stop()
+        await responder.stop()
         await telegram_sender.stop()
-        await ralph_loop.stop()
-        await cognitive_loop.stop()
         await redis_client.close()
         logging.info("System halted.")
 

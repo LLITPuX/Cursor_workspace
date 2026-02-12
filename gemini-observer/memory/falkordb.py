@@ -48,9 +48,10 @@ class FalkorDBProvider(MemoryProvider):
         8521381973: "BS",     # Bober Sikfan (Agent)
     }
 
-    def __init__(self, redis_client: redis.Redis, graph_name: str = "GeminiMemory"):
+    def __init__(self, redis_client: redis.Redis, graph_name: str = None):
         self.redis_client = redis_client
-        self.graph_name = graph_name
+        from config.settings import settings
+        self.graph_name = graph_name or settings.FALKORDB_GRAPH_NAME
 
     async def _query(self, query: str) -> list:
         """Execute a Cypher query against the graph."""
@@ -418,4 +419,73 @@ class FalkorDBProvider(MemoryProvider):
     async def clear_history(self):
         query = "MATCH (n) DETACH DELETE n"
         await self.redis_client.execute_command("GRAPH.QUERY", self.graph_name, query)
+
+    async def save_narrative_snapshot(
+        self,
+        event_uid: str,
+        narrative: str,
+        timestamp: datetime
+    ) -> Optional[str]:
+        """
+        Stream 2: Save Narrative Snapshot linked to a Message Event.
+        """
+        snapshot_id = f"snap_narrative_{uuid.uuid4().hex[:8]}"
+        ts_unix = timestamp.timestamp()
+        safe_narrative = self._escape(narrative)
+        
+        query = f"""
+        MATCH (m:Event:Message {{uid: '{event_uid}'}})
+        CREATE (s:Snapshot:Narrative {{
+            id: '{snapshot_id}',
+            content: '{safe_narrative}',
+            created_at: {ts_unix}
+        }})
+        CREATE (m)-[:TRIGGERED]->(s)
+        RETURN s.id
+        """
+        
+        try:
+            result = await self._query(query)
+            logger.info(f"🧠 Saved Narrative Snapshot: {snapshot_id}")
+            return snapshot_id
+        except Exception as e:
+            logger.error(f"Failed to save narrative snapshot: {e}")
+            return None
+
+    async def save_analyst_snapshot(
+        self,
+        narrative_id: str,
+        analysis: str,
+        intent: str,
+        tasks: List[str],
+        timestamp: datetime
+    ) -> Optional[str]:
+        """
+        Stream 3: Save Analyst Snapshot linked to a Narrative.
+        """
+        snapshot_id = f"snap_analyst_{uuid.uuid4().hex[:8]}"
+        ts_unix = timestamp.timestamp()
+        safe_analysis = self._escape(analysis)
+        tasks_json = json.dumps(tasks).replace('"', '\\"') # Simple escape
+        
+        query = f"""
+        MATCH (n:Snapshot:Narrative {{id: '{narrative_id}'}})
+        CREATE (a:Snapshot:Analyst {{
+            id: '{snapshot_id}',
+            analysis: '{safe_analysis}',
+            intent: '{intent}',
+            tasks: "{tasks_json}",
+            created_at: {ts_unix}
+        }})
+        CREATE (n)-[:LED_TO]->(a)
+        RETURN a.id
+        """
+        
+        try:
+            result = await self._query(query)
+            logger.info(f"🕵️ Saved Analyst Snapshot: {snapshot_id}")
+            return snapshot_id
+        except Exception as e:
+            logger.error(f"Failed to save analyst snapshot: {e}")
+            return None
 

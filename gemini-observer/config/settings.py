@@ -18,11 +18,15 @@ class Settings(BaseSettings):
     # Redis / FalkorDB Settings
     FALKORDB_HOST: str = "localhost"
     FALKORDB_PORT: int = 6379
+    FALKORDB_GRAPH_NAME: str = "GeminiStream"  # New graph for Stream Architecture V2
     FALKORDB_GRAPH_AGENT: str = "agent_memory"
     FALKORDB_GRAPH_GROUP: str = "group_chat_memory"
     REDIS_QUEUE_INCOMING: str = "chat:incoming"
     REDIS_QUEUE_OUTGOING: str = "chat:outgoing"
     REDIS_QUEUE_BRAIN: str = "chat:brain"  # Stream 1 -> Stream 2 Queue
+    REDIS_QUEUE_ANALYST: str = "chat:analyst" # Stream 2 -> Stream 3
+    REDIS_QUEUE_COORDINATOR: str = "chat:coordinator" # Stream 3 -> Stream 4
+    REDIS_QUEUE_RESPONDER: str = "chat:responder" # Stream 4 -> Stream 5
     
     class Config:
         env_file = ".env"

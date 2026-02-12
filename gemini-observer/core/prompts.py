@@ -24,6 +24,48 @@ def build_system_prompt(chat_history: str = "") -> str:
     return SYSTEM_CORE
 
 
+def build_narrative_prompt(current_message: str, chat_history: list) -> str:
+    """
+    Constructs a prompt for the Thinker (Stream 2) to generate a Narrative Snapshot.
+    """
+    history_str = "\n".join([f"[{msg['time']}] {msg['author']}: {msg['text']}" for msg in chat_history])
+    
+    return f"""
+Analyze the following conversation context and the new message.
+Provide a brief, objective narrative of what is happening (The "Situation").
+Focus on facts, emotional tone, and immediate context.
+
+Context:
+{history_str}
+
+New Message:
+{current_message}
+
+Narrative (1-2 sentences):
+"""
+
+def build_analyst_prompt(narrative: str, original_text: str) -> str:
+    """
+    Constructs a prompt for the Analyst (Stream 3) to determine intent and strategy.
+    """
+    return f"""
+Given the following situation (Narrative) and variable input, determine the user's intent and the best course of action.
+
+Narrative: {narrative}
+Original Input: {original_text}
+
+Possible Intents:
+- QUESTION (Needs information search)
+- COMMAND (Needs action execution)
+- CHAT (Casual conversation)
+- IGNORE (Noise, irrelevant)
+
+Output Format:
+Provide a reasoning followed by the Intent and a list of abstract tasks (SEARCH, REPLY, EXECUTE).
+Example: "User is asking about weather. Intent: QUESTION. Tasks: [SEARCH, REPLY]"
+"""
+
+
 def format_chat_history(messages: list) -> str:
     """Format messages for debugging (not used in prompt anymore)."""
     if not messages:
