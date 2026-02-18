@@ -30,7 +30,7 @@ async def verify_scribe():
     # 1.5 Start Scribe Instance (Background)
     from streams.scribe import Scribe
     from transport.queue import RedisQueue
-    from memory.falkordb import FalkorDBProvider
+    from core.memory.falkordb import FalkorDBProvider
     
     queue_ingress = RedisQueue(client, settings.REDIS_QUEUE_INCOMING, settings.REDIS_QUEUE_OUTGOING)
     memory = FalkorDBProvider(client)

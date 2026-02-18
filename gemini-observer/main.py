@@ -4,7 +4,7 @@ import redis.asyncio as redis
 import os
 
 from config.settings import settings
-from memory.falkordb import FalkorDBProvider
+from core.memory.falkordb import FalkorDBProvider
 from transport.queue import RedisQueue
 from transport.telegram_bot import TelegramBot
 from transport.sender import TelegramSender

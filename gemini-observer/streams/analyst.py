@@ -6,7 +6,7 @@ from typing import Dict, Optional, List
 
 from config.settings import settings
 from transport.queue import RedisQueue
-from memory.falkordb import FalkorDBProvider
+from core.memory.falkordb import FalkorDBProvider
 from core.switchboard import Switchboard
 from core.memory.prompt_builder import GraphPromptBuilder
 

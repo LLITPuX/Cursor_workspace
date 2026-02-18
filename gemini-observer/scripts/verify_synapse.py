@@ -2,7 +2,7 @@ import asyncio
 import sys
 import logging
 from config.settings import settings
-from memory.falkordb import FalkorDBProvider
+from core.memory.falkordb import FalkorDBProvider
 from transport.queue import RedisQueue
 
 # Configure logging

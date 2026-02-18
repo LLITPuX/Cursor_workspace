@@ -6,7 +6,7 @@ from typing import Dict, Optional
 
 from config.settings import settings
 from transport.queue import RedisQueue
-from memory.falkordb import FalkorDBProvider
+from core.memory.falkordb import FalkorDBProvider
 from core.switchboard import Switchboard
 
 # Configure logging

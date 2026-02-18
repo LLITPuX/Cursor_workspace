@@ -4,7 +4,7 @@ from datetime import datetime
 from aiogram import Bot
 from config.settings import Settings
 from transport.queue import RedisQueue
-from memory.falkordb import FalkorDBProvider
+from core.memory.falkordb import FalkorDBProvider
 
 class TelegramSender:
     def __init__(self, settings: Settings, redis_queue: RedisQueue, memory: FalkorDBProvider = None):
