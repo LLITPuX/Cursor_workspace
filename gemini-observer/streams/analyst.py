@@ -74,11 +74,15 @@ class Analyst:
             narrative = snapshot_data.get("narrative", "")
             narrative_id = snapshot_data.get("id")
             original_event = snapshot_data.get("trigger_event", {})
+            author_name = original_event.get("author_name", "User")
             
             # Build Prompt from Graph
+            prev_analyses = await self.memory.get_today_analyst_snapshots()
+            
             if self.prompt_builder:
                 prompt = await self.prompt_builder.build_analyst_prompt(
-                    narrative=narrative, original_text=original_event.get("text", "")
+                    narrative=narrative, original_text=f"[{author_name}]: {original_event.get('text', '')}",
+                    prev_analyses=prev_analyses
                 )
                 system_prompt = await self.prompt_builder.build_system_prompt("Analyst")
             else:

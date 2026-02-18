@@ -96,6 +96,7 @@ class Responder:
                     system_prompt += rag_context
                 
             # Call LLM
+            logger.info(f"📝 Responder System Prompt ({len(system_prompt)} chars):\n{system_prompt}")
             response = await self.switchboard.generate(
                 history=messages,
                 system_prompt=system_prompt

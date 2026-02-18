@@ -87,11 +87,25 @@ class Coordinator:
                     logger.error(f"⚠️ Search failed: {e}")
             
             # Prepare Context for Responder
+            context_summary = f"Intent: {intent}. Tasks: {tasks}"
+            if rag_context:
+                context_summary += f" RAG: {len(rag_context)} chars found."
+            
+            # Save Coordinator Snapshot to Graph (closes the thought chain)
+            analyst_id = plan.get("id", "")
+            coord_snapshot_id = await self.memory.save_coordinator_snapshot(
+                analyst_id=analyst_id,
+                context_summary=context_summary,
+                tasks_executed=tasks,
+                timestamp=datetime.now()
+            )
+            
             # We wrap the original event + added context
             context_data = {
-                "type": "context_context", # Naming from architecture
+                "type": "coordinator_context",
                 "original_event": original_event,
                 "plan_id": plan.get("id"),
+                "coordinator_snapshot_id": coord_snapshot_id,
                 "intent": intent,
                 "rag_context": rag_context,
                 "tasks_executed": tasks,

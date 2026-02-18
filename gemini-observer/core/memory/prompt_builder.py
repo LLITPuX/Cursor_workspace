@@ -90,11 +90,17 @@ class GraphPromptBuilder:
             })
         return instructions
 
-    async def _get_rules(self) -> list:
-        """Fetch global rules (standalone Rule nodes)."""
-        rows = await self._query(
-            "MATCH (r:Rule) RETURN r.name, r.content"
-        )
+    async def _get_rules(self, role_name: str = None) -> list:
+        """Fetch rules for a specific role (via GOVERNED_BY) or all rules."""
+        if role_name:
+            rows = await self._query(
+                f"MATCH (:Role {{name: '{role_name}'}})-[:GOVERNED_BY]->(r:Rule) "
+                f"RETURN r.name, r.content"
+            )
+        else:
+            rows = await self._query(
+                "MATCH (r:Rule) RETURN r.name, r.content"
+            )
         rules = []
         for row in rows:
             rules.append({
@@ -118,7 +124,7 @@ class GraphPromptBuilder:
         role_info = await self._get_role_info(role_name)
         tasks = await self._get_tasks(role_name)
         instructions = await self._get_instructions(role_name)
-        rules = await self._get_rules()
+        rules = await self._get_rules(role_name)
 
         parts = []
 
@@ -166,37 +172,86 @@ class GraphPromptBuilder:
         logger.info(f"📋 Built prompt for '{role_name}': {len(prompt)} chars")
         return prompt
 
-    async def build_narrative_prompt(self, current_message: str, chat_history: list) -> str:
+    async def build_narrative_prompt(
+        self, 
+        current_message: str, 
+        chat_history: list, 
+        active_topics: list = None,
+        entity_types: list = None,
+        recent_thougths: list = None,
+        weekly_summaries: list = None
+    ) -> str:
         """
-        Build prompt for the Thinker (Stream 2) to generate a Narrative Snapshot.
-        Uses graph-driven system context + runtime data.
+        Build prompt for the Thinker (Stream 2) to perform Semantic Analysis.
         """
         system_prompt = await self.build_system_prompt("Thinker")
-
+        
+        # Format Contexts
         history_str = "\n".join(
             [f"[{msg.get('time', '')}] {msg.get('author', '?')}: {msg.get('text', '')}" 
              for msg in chat_history]
         )
 
-        user_prompt = f"""Context:
-{history_str}
+        topics_str = "None"
+        if active_topics:
+            topics_str = "\n".join([f"- {t['title']}: {t['description']}" for t in active_topics])
 
-New Message:
+        entities_str = ", ".join(entity_types) if entity_types else "None"
+
+        thoughts_str = "None"
+        if recent_thougths:
+            thoughts_str = "\n".join([f"- {t[:100]}..." for t in recent_thougths])
+            
+        summaries_str = "None"
+        if weekly_summaries:
+            summaries_str = "\n".join([f"- {s[:200]}..." for s in weekly_summaries])
+
+        user_prompt = f"""
+CONTEXT:
+---
+Searchable Entity Types: {entities_str}
+---
+Active Topics:
+{topics_str}
+---
+Last 7 Days Summaries:
+{summaries_str}
+---
+Recent Thoughts (Do not repeat):
+{thoughts_str}
+---
+Chat History (Last 5 messages):
+{history_str}
+---
+
+NEW MESSAGE:
 {current_message}
 
-Narrative (1-2 sentences):"""
+INSTRUCTION:
+Analyze the "NEW MESSAGE" based on the Protocol. 
+Return ONLY VALID JSON.
+"""
+        return system_prompt + "\n\n" + user_prompt
 
-        return system_prompt + "\n\n---\n\n" + user_prompt
-
-    async def build_analyst_prompt(self, narrative: str, original_text: str) -> str:
+    async def build_analyst_prompt(self, narrative: str, original_text: str, prev_analyses: list = None) -> str:
         """
         Build prompt for the Analyst (Stream 3) to determine intent and strategy.
-        Uses graph-driven system context + runtime data.
+        Uses graph-driven system context + runtime data + previous analyses for the day.
         """
         system_prompt = await self.build_system_prompt("Analyst")
 
+        # Previous analyses context
+        prev_context = ""
+        if prev_analyses:
+            prev_parts = []
+            for snap in prev_analyses:
+                intent = snap.get('intent', '?')
+                analysis = snap.get('analysis', '')
+                prev_parts.append(f"- [{intent}] {analysis[:100]}")
+            prev_context = f"\n\nPrevious Analyses Today:\n" + "\n".join(prev_parts)
+
         user_prompt = f"""Narrative: {narrative}
-Original Input: {original_text}
+Original Input: {original_text}{prev_context}
 
 Possible Intents:
 - QUESTION (Needs information search)

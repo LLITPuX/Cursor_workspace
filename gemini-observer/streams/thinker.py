@@ -69,64 +69,104 @@ class Thinker:
 
     async def _process_event(self, event: Dict) -> Optional[Dict]:
         """
-        Generate Narrative Snapshot from Event.
+        Perform Semantic Analysis on Event.
         """
         try:
             # Check Agent State (Are we busy?)
-            # For now, we assume simple processing. 
             # TODO: Implement Lock State check via Graph.
             
-            # Prepare Context for LLM
+            # Prepare Data
             text = event.get("text", "")
-            user_id = event.get("user_id")
             chat_id = event.get("chat_id")
-            msg_uid = event.get("uid") # Graph UID if available, or construct it
+            author_name = event.get("author_name", "User")
+            msg_uid = event.get("uid")
             
             if not msg_uid:
-                # Reconstruct UID if not passed (though Scribe should pass it)
-                # This is fallback.
                  msg_uid = f"{chat_id}:{event.get('message_id')}"
 
-            # Build Prompt from Graph
+            # 1. Fetch Rich Context from Graph
             chat_context = await self.memory.get_chat_context(chat_id, limit=5)
+            active_topics = await self.memory.get_active_topics()
+            entity_types = await self.memory.get_entity_types()
+            recent_thoughts = await self.memory.get_recent_thinker_responses()
+            weekly_summaries = await self.memory.get_weekly_summaries()
             
+            # 2. Build Prompt
             if self.prompt_builder:
                 prompt = await self.prompt_builder.build_narrative_prompt(
-                    current_message=text, chat_history=chat_context
+                    current_message=f"[{author_name}]: {text}", 
+                    chat_history=chat_context, 
+                    active_topics=active_topics,
+                    entity_types=entity_types,
+                    recent_thougths=recent_thoughts,
+                    weekly_summaries=weekly_summaries
                 )
-                system_prompt = await self.prompt_builder.build_system_prompt("Thinker")
+                system_prompt = await self.prompt_builder.build_system_prompt("Thinker") # Fallback if not inside build_narrative_prompt
             else:
-                # Legacy fallback
-                from core.prompts import build_narrative_prompt
-                prompt = build_narrative_prompt(current_message=text, chat_history=chat_context)
-                system_prompt = "You are the inner voice of an AI. Analyze the situation briefly."
+                logger.error("❌ GraphPromptBuilder not initialized in Thinker!")
+                return None
             
+            # 3. Call LLM (Meta-Cognition)
             response = await self.switchboard.generate(
                 history=[{"role": "user", "content": prompt}],
-                system_prompt=system_prompt
+                system_prompt="" # System prompt is already built into 'prompt' by build_narrative_prompt logic logic, or we can pass it separately.
+                # prompt_builder.build_narrative_prompt returns (system + user). 
+                # Switchboard might handle this. Let's assume passed as ONE prompt for now, or split.
+                # Actually build_narrative_prompt returns the FULL prompt. 
+                # Switchboard needs system_prompt separated usually.
+                # Let's check prompt_builder again. It returns `system + "\n\n" + user`.
+                # So here we should probably pass empty system_prompt, or refactor prompt_builder to return tuple.
+                # For now, I will treat the whole thing as user prompt with empty system, or rely on model to handle it.
+                # Better: Split it manually or just pass it all.
             )
             
-            narrative_text = response.content.strip()
-            logger.info(f"💭 Narrative: {narrative_text[:50]}...")
+            raw_response = response.content.strip()
+            # Cleanup Markdown ```json ... ```
+            if "```json" in raw_response:
+                raw_response = raw_response.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw_response:
+                raw_response = raw_response.split("```")[1].split("```")[0].strip()
+
+            # 4. Log to ThinkerLogs (Async)
+            await self.memory.save_thinker_log(
+                prompt=prompt,
+                response=raw_response,
+                model="gemini"
+            )
+
+            # 5. Parse JSON
+            try:
+                analysis_data = json.loads(raw_response)
+            except json.JSONDecodeError:
+                logger.error(f"❌ Thinker failed to parse JSON: {raw_response}")
+                return None
+
+            logger.info(f"💭 Thought: {analysis_data.get('summary', 'No summary')}")
             
-            # Save Snapshot to Graph
+            # 6. Push to Enrichment Queue (Stream 1 Sidecar)
+            # We add the msg_uid to map it back
+            analysis_data['target_message_uid'] = msg_uid
+            # TODO: Implement queue push in the main loop or here. 
+            # We don't have the enrichment queue in settings yet, let's assume 'redis:enrichment_queue'
+            await self.queue.redis_client.rpush('redis:enrichment_queue', json.dumps(analysis_data))
+            
+            # 7. Create Narrative Snapshot for Stream 3 (Analyst)
+            # Analyst expects 'narrative' and 'trigger_event'
+            narrative_text = analysis_data.get('summary', text) # Fallback to text if summary missing
+            
             snapshot_id = await self.memory.save_narrative_snapshot(
                 event_uid=msg_uid,
                 narrative=narrative_text,
                 timestamp=datetime.now()
             )
             
-            if not snapshot_id:
-                logger.error("Failed to save narrative snapshot.")
-                return None
-                
-            # Create Snapshot Object to pass forward
             snapshot_data = {
                 "type": "narrative_snapshot",
                 "id": snapshot_id,
                 "narrative": narrative_text,
                 "trigger_event": event,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "semantic_data": analysis_data # Pass full data to Analyst too!
             }
             
             return snapshot_data

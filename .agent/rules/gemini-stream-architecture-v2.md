@@ -24,16 +24,32 @@
 ---
 
 ## 2️⃣ Stream 2: The Thinker (Intuition & Narrative)
-**Role:** Розуміння ситуації ("Що відбувається?").
+**Role:** Розуміння ситуації ("Що відбувається?") та Семантичний Аналіз.
 **Input:** Нові події в Графі (або дубль черги).
+**Side-Output:** `ThinkerLogs` (Graph) — запис пар "Prompt-Response" для мета-аналізу.
 
 ### ⚙️ Logic
-1.  **Check State:** Перевіряє статус Агента.
-    *   *Query:* `MATCH (a:Agent)-[:WORKING_ON]->(t:Task) RETURN t`
-    *   Якщо є активна задача -> Промпт: "Користувач пише, поки я зайнятий задачею T".
-2.  **Narrative Generation:** Створює `Narrative Snapshot`.
-    *   "Користувач жартує про погоду. Контекст: Ранок."
-3.  **Output:** `Narrative Snapshot` -> Stream 3.
+1.  **Context Assembly:**
+    *   Завантажує історію чату.
+    *   Завантажує **Активні Теми** (`MATCH (t:Topic {status: 'active'})...`).
+2.  **Cognition (LLM Call):**
+    *   Аналізує вхідне повідомлення та контекст.
+    *   Визначає:
+        *   **Тему:** (Існуюча чи Нова?).
+        *   **Сутності:** (Docker, Python, Bug...).
+        *   **Наратив:** Стислий опис ("Користувач пропонує нову фічу").
+    *   *Logging:* Асинхронно пише "Prompt + Response" у граф `ThinkerLogs`.
+3.  **Semantic Output (JSON):**
+    *   Формує пакет даних для Scribe (через `redis:enrichment_queue` або direct call, якщо Scribe розширений):
+        ```json
+        {
+          "msg_uid": "...",
+          "topics": ["Stream Arch"],
+          "entities": ["FalkorDB", "Graph"],
+          "narrative": "..."
+        }
+        ```
+4.  **Signal Output:** `Narrative Snapshot` -> Stream 3 (Analyst).
 
 ---
 

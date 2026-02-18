@@ -111,8 +111,20 @@ class GeminiProvider(LLMProvider):
         last_text = last_msg.get('content') or (last_msg.get('parts', [""])[0] if last_msg.get('parts') else "")
         
         try:
+            # Create model with system instruction if provided
+            model = self.model
+            if system_prompt:
+                model = genai.GenerativeModel(
+                    self.model_name,
+                    system_instruction=system_prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        max_output_tokens=2048,
+                        temperature=0.9
+                    )
+                )
+            
             # Start chat with history
-            chat = self.model.start_chat(history=formatted_history)
+            chat = model.start_chat(history=formatted_history)
             
             logging.info(f"GeminiProvider: Sending message...")
             response = chat.send_message(last_text)

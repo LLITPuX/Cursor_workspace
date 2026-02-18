@@ -33,26 +33,60 @@ class Scribe:
         self.running = True
         logger.info("📜 Stream 1: Scribe initialized and listening...")
         
+        enrichment_queue_key = "redis:enrichment_queue"
+        incoming_key = self.queue.incoming_key
+        
         while self.running:
             try:
-                # 1. Pop from Incoming Queue
-                event = await self.queue.pop_incoming(timeout=2)
-                if not event:
+                # 1. Pop from Incoming Queues (Ingest AND Enrichment)
+                # Listen to both keys.
+                result = await self.queue.redis_client.blpop([incoming_key, enrichment_queue_key], timeout=2)
+                
+                if not result:
                     continue
                 
-                logger.info(f"📜 Scribe received event: {event.get('message_id', 'unknown')}")
-                
-                # 2. Process & Persist
-                success = await self._process_event(event)
-                
-                # 3. Forward to Brain (if successfully saved)
-                if success:
-                    await self.queue.redis_client.rpush(settings.REDIS_QUEUE_BRAIN, json.dumps(event))
-                    logger.info("➡️  Forwarded to Brain Queue")
+                key_bytes, value_bytes = result
+                key = key_bytes.decode() if isinstance(key_bytes, bytes) else key_bytes
+                value = value_bytes.decode() if isinstance(value_bytes, bytes) else value_bytes
+                data = json.loads(value)
+
+                if key == incoming_key:
+                    logger.info(f"📜 Scribe received event: {data.get('message_id', 'unknown')}")
+                    # 2a. Process Event (Message)
+                    success = await self._process_event(data)
                     
+                    # 3. Forward to Brain (Stream 2)
+                    if success:
+                        await self.queue.redis_client.rpush(settings.REDIS_QUEUE_BRAIN, json.dumps(data))
+                        logger.info("➡️  Forwarded to Brain Queue")
+                
+                elif key == enrichment_queue_key:
+                    logger.info(f"✨ Scribe received enrichment for: {data.get('target_message_uid', 'unknown')}")
+                    # 2b. Process Enrichment (Semantic Data)
+                    await self._process_enrichment(data)
+
             except Exception as e:
                 logger.error(f"❌ Scribe Error: {e}")
                 await asyncio.sleep(1)
+
+    async def _process_enrichment(self, data: Dict):
+        """
+        Process semantic enrichment data from Thinker.
+        """
+        try:
+            msg_uid = data.get('target_message_uid')
+            topics = data.get('topics', [])
+            entities = data.get('entities', []) # Expecting list of dicts {name, type}
+            
+            # If entities is list of strings (legacy/simple), normalize
+            if entities and isinstance(entities[0], str):
+                entities = [{'name': e, 'type': 'Concept'} for e in entities]
+
+            if msg_uid:
+                await self.memory.save_semantic_enrichment(msg_uid, topics, entities)
+                logger.info(f"✅ Enriched message {msg_uid} with {len(topics)} topics & {len(entities)} entities")
+        except Exception as e:
+            logger.error(f"❌ Failed to process enrichment: {e}")
 
     async def _process_event(self, event: Dict) -> bool:
         """

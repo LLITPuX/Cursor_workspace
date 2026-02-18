@@ -41,9 +41,15 @@ class TelegramSender:
                     text = message.get("text")
                     
                     if chat_id and text:
-                        # Send message to Telegram
-                        sent_msg = await self.bot.send_message(chat_id=chat_id, text=text)
-                        logging.info(f"Sent message to {chat_id} (msg_id: {sent_msg.message_id})")
+                        # Telegram limit: 4096 chars per message
+                        MAX_LEN = 4096
+                        chunks = [text[i:i+MAX_LEN] for i in range(0, len(text), MAX_LEN)]
+                        
+                        sent_msg = None
+                        for chunk in chunks:
+                            sent_msg = await self.bot.send_message(chat_id=chat_id, text=chunk)
+                        
+                        logging.info(f"Sent message to {chat_id} (msg_id: {sent_msg.message_id}, chunks: {len(chunks)})")
                         
                         # ════════════════════════════════════════════════════════════════
                         # FIRST STREAM (The Scribe): Save agent response to Graph

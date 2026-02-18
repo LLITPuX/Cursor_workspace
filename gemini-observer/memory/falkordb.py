@@ -149,9 +149,11 @@ class FalkorDBProvider(MemoryProvider):
         MERGE (c:Chat {{chat_id: {chat_id}}})
         ON CREATE SET c.id = 'chat_{chat_id}', c.name = 'Chat {chat_id}'
         
-        // Ensure Day exists
+        // Ensure Day and Year exist with MONTH relationship
         MERGE (d:Day {{date: '{day_date}'}})
         ON CREATE SET d.id = '{uuid.uuid4()}', d.name = '{timestamp.day}'
+        MERGE (y:Year {{value: {timestamp.year}}})
+        MERGE (y)-[:MONTH {{number: {timestamp.month}}}]->(d)
         
         // Create the Message event
         CREATE (m:Event:Message {{
@@ -219,9 +221,11 @@ class FalkorDBProvider(MemoryProvider):
         MERGE (c:Chat {{chat_id: {chat_id}}})
         ON CREATE SET c.id = 'chat_{chat_id}', c.name = 'Chat {chat_id}'
         
-        // Ensure Day exists
+        // Ensure Day and Year exist with MONTH relationship
         MERGE (d:Day {{date: '{day_date}'}})
         ON CREATE SET d.id = '{uuid.uuid4()}', d.name = '{timestamp.day}'
+        MERGE (y:Year {{value: {timestamp.year}}})
+        MERGE (y)-[:MONTH {{number: {timestamp.month}}}]->(d)
         
         // Create the Message event
         CREATE (m:Event:Message {{
@@ -489,3 +493,189 @@ class FalkorDBProvider(MemoryProvider):
             logger.error(f"Failed to save analyst snapshot: {e}")
             return None
 
+    async def save_coordinator_snapshot(
+        self,
+        analyst_id: str,
+        context_summary: str,
+        tasks_executed: List[str],
+        timestamp: datetime
+    ) -> Optional[str]:
+        """
+        Stream 4: Save Coordinator Snapshot linked to Analyst Snapshot.
+        Creates the chain: Narrative → Analyst → Coordinator
+        """
+        snapshot_id = f"snap_coord_{uuid.uuid4().hex[:8]}"
+        ts_unix = timestamp.timestamp()
+        safe_summary = self._escape(context_summary)
+        tasks_json = json.dumps(tasks_executed).replace('"', '\\"')
+        
+        query = f"""
+        MATCH (a:Snapshot:Analyst {{id: '{analyst_id}'}})
+        CREATE (co:Snapshot:Coordinator {{
+            id: '{snapshot_id}',
+            context: '{safe_summary}',
+            tasks_executed: "{tasks_json}",
+            created_at: {ts_unix}
+        }})
+        CREATE (a)-[:LED_TO]->(co)
+        RETURN co.id
+        """
+        
+        try:
+            result = await self._query(query)
+            logger.info(f"⚡ Saved Coordinator Snapshot: {snapshot_id}")
+            return snapshot_id
+        except Exception as e:
+            logger.error(f"Failed to save coordinator snapshot: {e}")
+            return None
+
+    async def get_today_narrative_snapshots(self) -> List[Dict]:
+        """
+        Get ALL narrative snapshots for today.
+        Returns list of dicts with 'id', 'content', 'created_at'.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        query = f"""
+        MATCH (d:Day {{date: '{today}'}})
+        MATCH (m:Message)-[:HAPPENED_AT]->(d)
+        MATCH (m)-[:TRIGGERED]->(s:Snapshot:Narrative)
+        RETURN s.id, s.content, s.created_at
+        ORDER BY s.created_at ASC
+        """
+        
+        try:
+            result = await self._query(query)
+            snapshots = []
+            if result and len(result) > 1:
+                for row in result[1]:
+                    sid = row[0].decode() if isinstance(row[0], bytes) else row[0]
+                    content = row[1].decode() if isinstance(row[1], bytes) else row[1]
+                    ts = row[2]
+                    snapshots.append({'id': sid, 'content': content, 'created_at': ts})
+            return snapshots
+        except Exception as e:
+            logger.error(f"Failed to get today's narrative snapshots: {e}")
+            return []
+
+    async def get_today_analyst_snapshots(self) -> List[Dict]:
+        """
+        Get ALL analyst snapshots for today.
+        Returns list of dicts with 'id', 'analysis', 'intent', 'created_at'.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        query = f"""
+        MATCH (d:Day {{date: '{today}'}})
+        MATCH (m:Message)-[:HAPPENED_AT]->(d)
+        MATCH (m)-[:TRIGGERED]->(:Snapshot:Narrative)-[:LED_TO]->(a:Snapshot:Analyst)
+        RETURN a.id, a.analysis, a.intent, a.created_at
+        ORDER BY a.created_at ASC
+        """
+        
+        try:
+            result = await self._query(query)
+            snapshots = []
+            if result and len(result) > 1:
+                for row in result[1]:
+                    sid = row[0].decode() if isinstance(row[0], bytes) else row[0]
+                    analysis = row[1].decode() if isinstance(row[1], bytes) else row[1]
+                    intent = row[2].decode() if isinstance(row[2], bytes) else row[2]
+                    ts = row[3]
+                    snapshots.append({'id': sid, 'analysis': analysis, 'intent': intent, 'created_at': ts})
+            return snapshots
+        except Exception as e:
+            logger.error(f"Failed to get today's analyst snapshots: {e}")
+            return []
+    async def get_active_topics(self) -> List[Dict[str, str]]:
+        """Fetch all active topics."""
+        query = "MATCH (t:Topic {status: 'active'}) RETURN t.title, t.description"
+        try:
+            result = await self._query(query)
+            topics = []
+            if result and len(result) > 1:
+                for row in result[1]:
+                    title = row[0].decode() if isinstance(row[0], bytes) else row[0]
+                    desc = row[1].decode() if isinstance(row[1], bytes) else row[1]
+                    topics.append({"title": title, "description": desc})
+            return topics
+        except Exception as e:
+            logger.error(f"Failed to get active topics: {e}")
+            return []
+
+    async def get_entity_types(self) -> List[str]:
+        """Fetch all distinct entity types."""
+        query = "MATCH (e:Entity) RETURN DISTINCT e.type"
+        try:
+            result = await self._query(query)
+            types = []
+            if result and len(result) > 1:
+                for row in result[1]:
+                    etype = row[0].decode() if isinstance(row[0], bytes) else row[0]
+                    types.append(etype)
+            return types
+        except Exception as e:
+            logger.error(f"Failed to get entity types: {e}")
+            return []
+
+    async def get_recent_thinker_responses(self, limit: int = 5) -> List[str]:
+        """Fetch recent LLM responses logged in ThinkerLogs from today."""
+        # Note: Querying a different graph key "ThinkerLogs"
+        query = f"""
+        MATCH (l:LogEntry) 
+        WHERE l.timestamp > {datetime.now().timestamp() - 86400} 
+        RETURN l.response 
+        ORDER BY l.timestamp DESC 
+        LIMIT {limit}
+        """
+        try:
+            # We need to execute this against ThinkerLogs graph
+            result = await self.redis_client.execute_command("GRAPH.QUERY", "ThinkerLogs", query)
+            responses = []
+            if result and len(result) > 1:
+                for row in result[1]:
+                    resp = row[0].decode() if isinstance(row[0], bytes) else row[0]
+                    responses.append(resp)
+            return responses
+        except Exception as e:
+            logger.warning(f"Failed to get recent thinker logs: {e}")
+            return []
+
+    async def get_weekly_summaries(self, limit: int = 7) -> List[str]:
+        """Fetch day summaries for the last 7 days."""
+        query = f"""
+        MATCH (d:Day)<-[:SUMMARIZES]-(s:DaySummary)
+        RETURN s.content
+        ORDER BY d.date DESC
+        LIMIT {limit}
+        """
+        try:
+            result = await self._query(query)
+            summaries = []
+            if result and len(result) > 1:
+                for row in result[1]:
+                    content = row[0].decode() if isinstance(row[0], bytes) else row[0]
+                    summaries.append(content)
+            return summaries
+        except Exception as e:
+            logger.warning(f"Failed to get weekly summaries: {e}")
+            return []
+
+    async def save_thinker_log(self, prompt: str, response: str, model: str = "gemini"):
+        """Save prompt/response pair to ThinkerLogs graph."""
+        timestamp = datetime.now().timestamp()
+        safe_prompt = self._escape(prompt)
+        safe_response = self._escape(response)
+        
+        query = f"""
+        CREATE (:LogEntry {{
+            timestamp: {timestamp},
+            prompt: '{safe_prompt}',
+            response: '{safe_response}',
+            model: '{model}'
+        }})
+        """
+        try:
+            await self.redis_client.execute_command("GRAPH.QUERY", "ThinkerLogs", query)
+        except Exception as e:
+            logger.error(f"Failed to save Thinker log: {e}")
