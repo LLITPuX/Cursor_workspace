@@ -58,7 +58,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       # Bind mount - скрипти та файли сесій зберігаються на локальному диску
-      - "C:/Cursor workspace/scripts:/app/scripts"
+      - "C:/Cursor workspace/falkordb-service/scripts:/app/scripts"
       - "C:/Cursor workspace/saved_sessions:/app/saved_sessions"
     depends_on:
       falkordb:
