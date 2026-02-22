@@ -29,6 +29,14 @@ docker exec falkordb redis-cli GRAPH.QUERY Grynya "<cypher_query>"
 - `(:Year)` → `[:MONTH {number}]` → `(:Day)` — часова вісь
 - Будь-який вузол прив'язується до часу через `[:HAPPENED_AT {time: "HH:MM:SS"}]` → `(:Day)`
 
+> [!CAUTION]
+> **ІНВАРІАНТ ХРОНОЛОГІЧНОГО ЛАНЦЮГА (ОБОВ'ЯЗКОВО ЗАВЖДИ):**
+> 1. **КОЖЕН** новостворений вузол (Request, Response, Feedback, Analysis) **ОБОВ'ЯЗКОВО** зв'язується `[:NEXT]` з попереднім вузлом у сесії.
+> 2. **КОЖНА** нова Session зв'язується `[:NEXT]` з попередньою Session.
+> 3. Після створення останнього вузла — оновлюй `[:LAST_EVENT]` сесії (видали старий, створи новий).
+> 4. **КОЖЕН** Response **ОБОВ'ЯЗКОВО** містить поле `full_text` з повним текстом відповіді (СЛОВО В СЛОВО, без скорочень).
+> Ці правила діють для ВСІХ протоколів: `/db`, `/sa`, `/ss`.
+
 ---
 
 ## 3. Протокол `/db` (Відкриття сесії)
@@ -39,9 +47,11 @@ docker exec falkordb redis-cli GRAPH.QUERY Grynya "<cypher_query>"
     1.  **Створи вузол `:Session`** з полями `id`, `name`, `topic`, `status: 'active'`, `trigger: '/db'`.
     2.  **Створи вузол `:Request`** з текстом запиту та зв'яжи з сесією через `[:PART_OF]`.
     3.  **Прив'яжи до хронології** — MERGE вузлів `:Year`/`:Day` за поточною датою.
-    4.  **Аналіз наміру:** Зрозумій, що потрібно зробити, виконай запит.
-    5.  **Збережи свою відповідь** як `:Response` з `[:RESPONDS_TO]` → `:Request` та `[:PART_OF]` → `:Session`.
-    6.  **Витягни сутності** (`:Entity`) з діалогу — технології, концепти, інструменти, агенти.
+    4.  **Хронологічний ланцюг:** Якщо це НЕ перша сесія — створи `[:NEXT]` від попередньої `:Session` до нової. Створи `[:NEXT]` від `:Request` (бо це перший вузол сесії).
+    5.  **Аналіз наміру:** Зрозумій, що потрібно зробити, виконай запит.
+    6.  **Збережи свою відповідь** як `:Response` з `[:RESPONDS_TO]` → `:Request`, `[:PART_OF]` → `:Session`, та **`full_text`** з повним текстом відповіді.
+    7.  **NEXT-ланцюг:** Створи `[:NEXT]` від попереднього вузла (Request) до Response. Оновлюй `[:LAST_EVENT]` сесії.
+    8.  **Витягни сутності** (`:Entity`) з діалогу — технології, концепти, інструменти, агенти.
 
 ---
 
@@ -51,18 +61,21 @@ docker exec falkordb redis-cli GRAPH.QUERY Grynya "<cypher_query>"
 *   **Семантика:** `/sa` **продовжує активну сесію**. Зберігає логічний зв'язок з попереднім контекстом.
 *   **Твої дії:**
     1.  **Збережи фідбек** користувача як `:Feedback` з `[:FEEDBACK_ON]` → остання `:Response` та `[:PART_OF]` → `:Session`.
-    2.  **Збережи свою відповідь** як `:Response` з `[:RESPONDS_TO]` → `:Feedback` та `[:PART_OF]` → `:Session`.
-    3.  **Проведи самоаналіз** — створи `:Analysis` з полями:
+    2.  **NEXT-ланцюг:** Створи `[:NEXT]` від попереднього вузла до Feedback.
+    3.  **Збережи свою відповідь** як `:Response` з `[:RESPONDS_TO]` → `:Feedback`, `[:PART_OF]` → `:Session`, та **`full_text`** з повним текстом відповіді (НЕ скорочуй, зберігай СЛОВО В СЛОВО).
+    4.  **NEXT-ланцюг:** Створи `[:NEXT]` від Feedback до Response.
+    5.  **Проведи самоаналіз** — створи `:Analysis` з полями:
         - `verdict` (correct / partially_correct / incorrect)
         - `rules_used` — які правила використано
         - `rules_ignored` — які правила пропущено
         - `errors` — конкретні помилки
         - `lessons` — витягнуті уроки
         - Зв'яжи через `[:ANALYZES]` → `:Response` та `[:PART_OF]` → `:Session`.
-    4.  **Витягни нові сутності** (`:Entity`) та зв'яжи:
+    6.  **NEXT-ланцюг:** Створи `[:NEXT]` від Response до Analysis. Оновлюй `[:LAST_EVENT]` сесії на останній створений вузол.
+    7.  **Витягни нові сутності** (`:Entity`) та зв'яжи:
         - `(:Session)-[:INVOLVES]->(:Entity)` — сесія стосується сутності
         - `(:Request|Feedback)-[:MENTIONS]->(:Entity)` — конкретне згадування
-    5.  **Підтвердження:** Поверни повідомлення: "✅ Артефакт збережено [ID вузлів]".
+    8.  **Підтвердження:** Поверни повідомлення: "✅ Артефакт збережено [ID вузлів]".
 
 ---
 
@@ -76,11 +89,13 @@ docker exec falkordb redis-cli GRAPH.QUERY Grynya "<cypher_query>"
 
 ### Крок 1: Протокол `/sa` для всієї сесії (FalkorDB)
 
-> Цей крок ідентичний протоколу `/sa` (секція 4), але аналіз охоплює **всю сесію**, а не одну відповідь.
+> Цей крок ідентичний протоколу `/sa` (секція 4), але аналіз охоплює **всю сесію**, а не одну відповідь. **Інваріант хронологічного ланцюга (секція 2) діє!**
 
 1.  **Якщо є фідбек у лапках** — збережи як `:Feedback` з `[:FEEDBACK_ON]` → остання `:Response` та `[:PART_OF]` → `:Session`.
-2.  **Збережи свою відповідь** як `:Response` з `[:RESPONDS_TO]` та `[:PART_OF]` → `:Session`.
-3.  **Створи фінальний `:Analysis`** з підсумком **всієї сесії**:
+2.  **NEXT-ланцюг:** Створи `[:NEXT]` від попереднього вузла до Feedback.
+3.  **Збережи свою відповідь** як `:Response` з `[:RESPONDS_TO]`, `[:PART_OF]` → `:Session`, та **`full_text`** з повним текстом відповіді (СЛОВО В СЛОВО).
+4.  **NEXT-ланцюг:** Створи `[:NEXT]` від Feedback до Response.
+5.  **Створи фінальний `:Analysis`** з підсумком **всієї сесії**:
     - `type: 'session_summary'`
     - `verdict` (correct / partially_correct / incorrect) — за всю сесію
     - `topics` — перелік обговорених тем
@@ -90,8 +105,9 @@ docker exec falkordb redis-cli GRAPH.QUERY Grynya "<cypher_query>"
     - `lessons` — витягнуті уроки за всю сесію
     - `rules_used` / `rules_ignored` — правила за всю сесію
     - Зв'яжи через `[:SUMMARIZES]` → `:Session` та `[:ANALYZES]` → `:Response` та `[:PART_OF]` → `:Session`
-4.  **Витягни нові сутності** (`:Entity`) з останнього раунду діалогу.
-5.  **Закрий сесію:** `MATCH (s:Session {id: '<session_id>'}) SET s.status = 'closed'`
+6.  **NEXT-ланцюг:** Створи `[:NEXT]` від Response до Analysis. Оновлюй `[:LAST_EVENT]` сесії.
+7.  **Витягни нові сутності** (`:Entity`) з останнього раунду діалогу.
+8.  **Закрий сесію:** `MATCH (s:Session {id: '<session_id>'}) SET s.status = 'closed'`
 
 ### Крок 2: Збереження повного логу сесії у файл (Бекап)
 
@@ -217,7 +233,7 @@ git push
 |---|---|---|
 | `:Session` | `id`, `name`, `topic`, `status`, `trigger` | Логічний контейнер діалогу |
 | `:Request` | `id`, `name`, `author`, `text`, `type` | Запит користувача |
-| `:Response` | `id`, `name`, `author`, `summary`, `type` | Відповідь агента |
+| `:Response` | `id`, `name`, `author`, `summary`, `full_text`, `type` | Відповідь агента (full_text — повний текст, ОБОВ'ЯЗКОВИЙ) |
 | `:Feedback` | `id`, `name`, `author`, `text` | Фідбек користувача |
 | `:Analysis` | `id`, `name`, `type`, `verdict`, `errors`, `lessons` | Самоаналіз агента |
 | `:Entity` | `id`, `name`, `type`, `description` | Витягнута сутність (Tag) |
@@ -233,6 +249,8 @@ git push
 | `[:RESPONDS_TO]` | `:Response` | `:Request` або `:Feedback` | Відповідає на |
 | `[:FEEDBACK_ON]` | `:Feedback` | `:Response` | Фідбек на відповідь |
 | `[:ANALYZES]` | `:Analysis` | `:Response` | Аналізує відповідь |
+| `[:NEXT]` | будь-який вузол | будь-який вузол | Хронологічний ланцюг (всередині сесії та між сесіями) |
+| `[:LAST_EVENT]` | `:Session` | будь-який вузол | Вказівник на останній вузол в сесії |
 | `[:HAPPENED_AT]` | будь-який вузол | `:Day` | Часова прив'язка `{time}` |
 | `[:MONTH]` | `:Year` | `:Day` | Місяць `{number}` |
 | `[:INVOLVES]` | `:Session` | `:Entity` | Сесія стосується сутності |
