@@ -75,8 +75,7 @@
 
 ```powershell
 cd "c:\Cursor workspace"
-git add saved_sessions/
-git commit -m "session: <коротка тема сесії>"
+git commit -am "session: <коротка тема сесії>"
 git push
 ```
 
