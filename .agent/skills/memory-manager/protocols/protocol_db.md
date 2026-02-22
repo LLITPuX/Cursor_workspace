@@ -28,4 +28,7 @@
         *   Від Request до Response.
     *   Онови `last_event_id` на ID твого Response.
 
-**Виконання:** Передай JSON скрипту `memory_bridge.py` через `run_command`.
+**Виконання:** Передай JSON скрипту `memory_bridge.py` через `run_command`. 
+
+> [!IMPORTANT]
+> **Очищення:** Якщо використовувався тимчасовий файл, видали його одразу після завершення `run_command`.
